@@ -7,6 +7,7 @@
 # ---------------------------------------------------------------------------
 '''
 This script check how many contigs are needed to cover X% of the reference
+It uses the nucmer and show-coords MUMmer4's functions
 
 It takes as input :
 	-r --ref: the reference genome assembly (multi fasta)
@@ -14,21 +15,19 @@ It takes as input :
 	-o --output: name of output tsv file
 	-p --percentCovered: Percentage of the genome which has to be covered
 	-m --mummerPath: Path to mummer function, if not in path
-	-e --enableMultiprocessing: Enable multiprocessing, highly speed up the script
+	-t --threads: Number of threads for nucmer
 
 Output will be:
 Assembly	NbContigsToX
-Draft1		1
-Draft2		1
-Draft3		2
+Draft1		16
+Draft2		17
+Draft3		16
 '''
 # ---------------------------------------------------------------------------
-import csv
 import os
 import sys
 import argparse
-from datetime import datetime
-from random import randint
+import time
 # ---------------------------------------------------------------------------
 # Definitions
 
@@ -38,36 +37,82 @@ def rank_simple(vector):
 def decreasing_rank_simple(vector):
 	return sorted(range(len(vector)), key=vector.__getitem__)[::-1]
 
-def createFasta(name: str, IDs: list, sequences: list):
-	if len(IDs) != len(sequences) :
-		raise Error("List of IDs and sequences must have the same length. Fasta file connt be created.")
-	fasta = open(name, "w")
-	for i in range(len(IDs)):
-		fasta.write(">"+IDs[i]+"\n")
-		fasta.write(sequences[i]+"\n")
+def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
+	# Run nucmer
+	nucmerShellCommand=mummerPath+"nucmer -t "+str(threads)+" --maxmatch --prefix "+prefix+" "+refPath+" "+draftPath
+	os.system(nucmerShellCommand)
+	# Run show coords
+	showcoordsShellCommand=mummerPath+"show-coords -TH "+prefix+".delta > "+prefix+".coords"
+	os.system(showcoordsShellCommand)
+	# Remove nucmer delta file
+	os.remove(prefix+".delta")
+
+def getBed(fastaPath):
+	# Get reference chromosome name and length
+	Chr=[]
+	Seq=[]
+	seq=""
+	fasta=open(fastaPath, 'r')
+	for line in fasta.readlines():
+		if line.startswith(">"):
+			Chr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
+			if seq != "":
+				Seq += [seq]
+			seq=""
+		else:
+			seq += line.strip()
+	Seq += [seq]
 	fasta.close()
+	Len=[len(x) for x in Seq]
+	# Create the BED file for each chromosome [ChrID, Start, End]
+	# Start is included, End is excluded
+	BED = []
+	for i in range(len(Chr)):
+		BED += [[Chr[i], 1, Len[i]+1]]
+	return BED
 
-def getPercentageCovered(refPath, draftPath, mummerPath):
-	# Run dnadiff command
-	print("Running dnadiff between:")
-	print(refPath)
-	print(draftPath)
-	prefix = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%m_%f") + "_dnadiff_" + str(randint(0, 10000))
-	dnadiffShellCommand=mummerPath+"dnadiff --prefix "+prefix+" "+refPath+" "+draftPath
-	os.system(dnadiffShellCommand)
-	# Read report file to get the percentage of base aligned
-	report = open(prefix + ".report", "r")
-	for line in report.readlines():
-		if line.startswith("AlignedBases"):
-			percentCovered = float(line.split("%")[0].split("(")[1])
-			break
-	# Remove dnadiff files
-	os.system("rm -f "+prefix+".*")
+def getBEDlen(BED):
+	lengths = [x[2]-x[1] for x in BED]
+	return sum(lengths)
 
-	return percentCovered
+def getCoverage(refBED, showCoordsPath, contigList:list):
+	BED = refBED.copy()
+	coords = open(showCoordsPath, 'r')
+	for line in coords.readlines():
+		refStart = int(line.split("\t")[0])
+		refEnd = int(line.split("\t")[1]) + 1
+		refChr = line.split("\t")[7]
+		draftChr = line.strip().split("\t")[8]
 
+		if draftChr in contigList:
+			newBED = []
+			for b in BED:
+				if b[0] == refChr:
+					if refStart <= b[1]:
+						if refEnd <= b[1]:
+							newBED += [b]
+						elif refEnd < b[2]:
+							newBED += [[refChr, refEnd, b[2]]]
+						else: 
+							pass # the BED coordinates are deleted
+					elif refStart < b[2]:
+						if refEnd < b[2]:
+							newBED += [[refChr, b[1], refStart]]
+							newBED += [[refChr, refEnd, b[2]]]
+						else: 
+							newBED += [[refChr, b[1], refStart]]
+					else:
+						newBED += [b]
+				else: newBED += [b]
+			BED = newBED.copy()
+	coords.close()
 
-
+	# Get total length of ref Genome
+	totalLen = sum(refLen)
+	uncoveredLen = getBEDlen(BED)
+	coveredLen = totalLen - uncoveredLen
+	percent = 100 * coveredLen / totalLen
+	return(percent)
 # ---------------------------------------------------------------------------
 
 # =============
@@ -79,9 +124,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-o", "--output", help="Name of the outputed VCF", required=True)
-parser.add_argument("-p", "--percentCovered", help="Percentage of the genome which has to be covered", type=int, default=99)
+parser.add_argument("-p", "--percentCovered", help="Percentage of the genome which has to be covered", type=int, default=95)
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
-parser.add_argument("-e", "--enableMultiprocessing", help="Enable multiprocessing, highly speed up the script", type=bool, default=True)
+parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=1)
 
 
 # Read arguments from the command line
@@ -95,116 +140,94 @@ percent=args.percentCovered
 mummer=args.mummerPath
 if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
-enableMultiprocessing=args.enableMultiprocessing
-if enableMultiprocessing:
-	import multiprocessing as mp
+threads=args.threads
 
 # Write header in output file
 out = open(outputPath, 'w')
 out.write("Assembly\tNbContigsTo" + str(percent) + "\n")
 
-# Iterate over each draft assembly
-for d in range(nbDraft):
-	draftName = draftPaths[d].split("/")[-1]
+# ========================================
+# Get reference chromosome name and length
+refChr=[]
+refSeq=[]
+seq=""
+ref=open(refPath, 'r')
+for line in ref.readlines():
+	if line.startswith(">"):
+		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
+		if seq != "":
+			refSeq += [seq]
+		seq=""
+	else:
+		seq += line.strip()
+refSeq += [seq]
+ref.close()
+refLen=[len(x) for x in refSeq]
 
-	# =====================================
-	# Get draft contigs names and sequences
-	# =====================================
+refName=refPath.split("/")[-1]
+
+# ==================================================
+# Iterate over each draft assembly to get the number 
+# of contigs that cover X% of the reference
+# ==================================================
+for d in range(nbDraft):
+
+	draftName=draftPaths[d].split("/")[-1]
+	print("\n\t--- Running for draft assembly "+draftName+" ---\n")
+	start = time.time()
+
+	# Get draft contig name
 	draftChr=[]
-	draftLine=[]
-	draftSeq=[]
-	seq=""
 	draft=open(draftPaths[d], 'r')
 	for line in draft.readlines():
 		if line.startswith(">"):
-			draftLine += [line]
 			draftChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-			if seq != "":
-				draftSeq += [seq]
-			seq=""
-		else:
-			seq += line.strip()
-	draftSeq += [seq]
 	draft.close()
 
+	# Align draft to ref
+	prefix = draftName+"_VS_"+refName
+	getShowCoords(refPath, draftPaths[d], prefix, mummer, threads)
+	end = time.time()
+	print("1/2 Alignment done: ran in "+str(round(end-start))+"s")
 
-	# ===============================================
-	# Using MUMmer4 to align each contig to reference
-	# ===============================================
 
-	# Get the fraction of the reference covered for each contig
-	toRun = [] # This list will contain the arguments required to run the getPercentageCovered function
-	for i in range(len(draftChr)):
+	start = time.time()
+	# Get BED list of reference genome
+	refBED = getBed(refPath)
 
-		# Create a fasta file with a single contig
-		fastaName = draftName+"_"+draftChr[i]+".fasta"
-		createFasta(fastaName, [draftChr[i]], [draftSeq[i]])
+	# ======================================
+	# Get reference coverage for each contig
+	toRun = []
+	for contig in draftChr:
+		toRun += [[refBED, prefix+".coords", [contig]]]
 
-		# Use MUMmer4's dnadiff to get the percentage of the reference covered by the contig
-		toRun += [(refPath, fastaName, mummer)] 
-
-	# Run dnadiff to get cevorage of the reference
-	if enableMultiprocessing:
-		pool = mp.Pool(mp.cpu_count())
-		draftCoverage = pool.starmap(getPercentageCovered, toRun)
-	else:
-		draftCoverage = []
-		for run in toRun:
-			draftCoverage += [getPercentageCovered(run[0], run[1], run[2])]
-	print(draftCoverage)
-
-	# Remove fasta files
+	# Get coverage per contig
+	draftCoverage = []
 	for run in toRun:
-		fasta = run[1]
-		os.remove(fasta)
+		draftCoverage += [getCoverage(run[0], run[1], run[2])]
 
-	# Order contigs base on decreasing prcentage of reference covered
+	# Order contigs by decreasing coverage of reference assembly
 	order = decreasing_rank_simple(draftCoverage)
 
-	# ================================================================
-	# Get the number of contigs necessary to cover X% of the reference
-	# ================================================================
-
-	# First contigs
-	n = 1
+	# =========================================================
+	# Get reference coverage by adding sequentially each contig
+	toRun = []
+	# First contig
 	index = order[0]
-	ID = [draftChr[index]]
-	sequence = [draftSeq[index]]
-	fastaName = draftName+"_"+str(n)+"_contigs.fasta"
-	createFasta(fastaName, ID, sequence)
-	toRun = [(refPath, fastaName, mummer)]
+	contig = [draftChr[index]]
+	toRun += [[refBED, prefix+".coords", contig]]
 
 	# Sequentially add all contigs
 	for i in range(1,len(draftChr)):
-		n += 1
-		index = order[0:n]
-		# Create Fasta File with contigs 1 to n
-		IDs = []
-		sequences = []
-		for i in index:
-			IDs += [draftChr[i]]
-			sequences += [draftSeq[i]]
-		fastaName = draftName+"_"+str(n)+"_contigs.fasta"
-		createFasta(fastaName, IDs, sequences)
-		toRun += [(refPath, fastaName, mummer)] 
+		index = order[0:i+1]
+		contigs = [draftChr[j] for j in index]
+		toRun += [[refBED, prefix+".coords", contigs]]
 
-	# Run dnadiff
-	if enableMultiprocessing:
-		pool = mp.Pool(mp.cpu_count())
-		increasingDraftCoverage = pool.starmap(getPercentageCovered, toRun)
-	else:
-		increasingDraftCoverage = []
-		for run in toRun:
-			increasingDraftCoverage += [getPercentageCovered(run[0], run[1], run[2])]
-	print(increasingDraftCoverage)
-
-	# Remove fasta files
+	# Get coverage
+	increasingDraftCoverage = []
 	for run in toRun:
-		fasta = run[1]
-		os.remove(fasta)
+		increasingDraftCoverage += [getCoverage(run[0], run[1], run[2])]
 
-	# Get the number of contigs to reach X%
-	referenceCovered = 0
 	nbContigs = 0
 	for c in increasingDraftCoverage:
 		nbContigs += 1
@@ -214,9 +237,17 @@ for d in range(nbDraft):
 		n = nbContigs
 	else:
 		n = "NotReached"
+	os.remove(prefix+".coords")
+
+	end = time.time()
+	print("2/2 Coordinates analsis done: ran in "+str(round(end-start))+"s\n")
 
 	out.write(draftName + "\t" + str(n) + "\n")
+	print("Assembly\tNbContigsTo" + str(percent))
+	print(draftName + "\t" + str(n))
 
 out.close()
+
+
 
 
