@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 '''
 This script check how many contigs are needed to cover X% of the reference
-It uses the nucmer and show-coords MUMmer4's functions
+It uses the nucmer (--maxmatch) and show-coords MUMmer4's functions
 
 It takes as input :
 	-r --ref: the reference genome assembly (multi fasta)
