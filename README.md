@@ -7,7 +7,7 @@ This repository contains usefull python tools to deal with de novo genome assemb
 
 ## Processing fasta files
 **extractFragment.py**
-* Extract a fragment of a fasta file (either a whole sequence, or a fragment of a sequence (1-based positions)
+* Extract a fragment of a fasta file (either a whole sequence, or a fragment of a sequence (1-based positions))
 
 **maskTelomeres.py**
 * Mask X kb at the start and end of each sequence of a fasta file. 
