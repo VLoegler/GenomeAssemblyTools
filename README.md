@@ -1,18 +1,43 @@
 # GenomeAssemblyTools
 
-This repository contains usefull python tools to deal with de novo genome assemblies using MUMmer4. 
+This repository contains usefull python tools to deal with de novo genome assemblies using MUMmer4 and blast+. 
 
-### reorderContigs.py
-This tools reorder the contigs of an assembly according to a reference assembly. The script changes order and orientation of contigs if needed. 
+**Tools.py**
+* Contains the main functions and classes used by the other script. 
 
-### NbContigsToX.py
-Get the number of an assembly contigs that cover X% of a reference assembly. 
+## Processing fasta files
+**extractFragment.py**
+* Extract a fragment of a fasta file (either a whole sequence, or a fragment of a sequence (1-based positions)
 
-### maskTelomeres.py
-Mask extremities of each chromosome (with a given size, default is 20kb). 
+**maskTelomeres.py**
+* Mask X kb at the start and end of each sequence of a fasta file. 
 
-### findMergedChromosomes
-Find contigs corresponding to the merge of several chromosomes of a reference. To be considered as merged, more than 90% of several reference chromosomes must align on the contig. 
+**reorderContigs.py**
+* Reorder contigs based on a reference genome. Usefull to have a clean diagonal when plotting against the reference. 
 
-### Rename contigs
-Rename contigs with a reference genome. Contigs will be renamed with reference chromosome name if more than 20kb align on the contig. If several chromosomes align, name of all chromosomes will be in the new contig name.  
+**renameContigs.py**
+* Rename contigs based on a reference genome (work in progress). 
+
+## Genome assembly filtering
+**filterContigSize.py**
+* Filter out contigs smaller than a specified threshold. 
+
+**getNuclearContigs.py**
+* Retrieve contigs corresponding the nuclear genome, based on sequence similarity with a reference genome or a BLAST database containing nuclear chromosomes (several strain avoid reference bias). 
+
+**removeRedundantContigs.py**
+* Remove contigs that are entirely covered by other contigs of the same assembly. 
+
+## Genome assembly information
+**NbContigsToXCoverage.py**
+* Give the number of contig required to cover X% of a reference genome. 
+
+**checkChromosomePresence.py**
+* Take a reference genome and indicate how many reference chromosomes are covered at X % (80% default) by the draft assembly. 
+
+**findDoubleCentromeres.py**
+* Take the centromere sequence and indicate how many contigs contain more than 1 centromere. 
+
+**findMergedChromosomes.py**
+* Give the number of contigs covering several reference chromosomes. Can be inacurate because of large translocation. Better use findDoubleCentromere.py to identify merged chromosomes. 
+
