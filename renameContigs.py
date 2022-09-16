@@ -172,35 +172,61 @@ os.remove(prefix+".coords")
 # Convert all point of the matrix to BED object and get length
 for i in range(len(draftChr)):
 	for j in range(len(refChr)):
-		analysisMatrix[i][j] = BED(analysisMatrix[i][j]).len
+		analysisMatrix[i][j] = BED(analysisMatrix[i][j])
 
-# Get new contigs names
-draftNewChr = []
-print("--- Renamed contigs ---")
+# Second matrix just containing length
+x = len(draftChr)
+y = len(refChr)
+analysisMatrixLen = []
+for i in range(x):
+	analysisMatrixLen.append([])
+	for j in range(y):
+		analysisMatrixLen[i].append(analysisMatrix[i][j].len)
+
+
+# Assign a main Chr to each contig
+mainChrs = [] # Contain the main chromosome corresponding to each contig
+mainChrsInfo = []
 for i in range(len(draftChr)):
-	correpondingNames=[]
-	alignmentSizes=[]
-	for j in range(len(refChr)):
-		if analysisMatrix[i][j] >= alignmentSizeKb*1000:
-			correpondingNames += [refChr[j]]
-			alignmentSizes += [analysisMatrix[i][j]]
+	mainChrs += [refChr[analysisMatrixLen[i].index(max(analysisMatrixLen[i]))]]
+	mainChrsInfo += [mainChrs[i] + "=" + str(analysisMatrixLen[i][refChr.index(mainChrs[i])])]
 
-	if len(correpondingNames) == 0: # If no corresponding chromosome found
-		newName=">"+draftChr[i]
-		if args.alignmentSizeInfo:
-			newName+=" length="+str(draftLen[i])
-	else: 
-		# Order chr according to decreasing alignment size
-		correpondingNames=[correpondingNames[j] for j in decreasing_rank_simple(alignmentSizes)]
-		alignmentSizes=[alignmentSizes[j] for j in decreasing_rank_simple(alignmentSizes)]
+# Check if several contigs are assigned to a single chromosome
+mainChrs2 = mainChrs.copy() # Contain the main chr for each contig + indication of order if several contigs per chr
+for j in range(len(refChr)):
+	if mainChrs2.count(refChr[j]) > 1:
+		# Get index of chromosomes
+		indices = [i for i, x in enumerate(mainChrs2) if x == refChr[j]]
+		# Get centers of alignments
+		centers = [analysisMatrix[i][j].getCenter() for i in indices]
+		suffix = [i+1 for i in rank_simple(centers)]
+		for i in range(len(indices)):
+			mainChrs2[indices[i]] = mainChrs2[indices[i]] + "." + str(suffix[i])
 
-		newName=">"+draftChr[i]+"_"+"_".join(correpondingNames)
-		if args.alignmentSizeInfo:
-			newName+=" length="+str(draftLen[i])
-			for j in range(len(correpondingNames)):
-				newName+=" "+correpondingNames[j]+"="+str(alignmentSizes[j])
-	print(draftChr[i]+"\t"+newName)
-	draftNewChr += [newName]
+# Add secondary chromosomes (in case of translocation). That is Chromosome aligning on more than X kb on the contig
+mainChrs3 = mainChrs2.copy() # Contains additional chromosome aligned on contig because of translocations
+mainChrs3Info = [""] * len(draftChr)
+for i in range(len(draftChr)):
+	main = mainChrs[i]
+	mainAlignment = analysisMatrixLen[i][refChr.index(main)]
+
+	secondaryChrs = [x for x in refChr if x != main and analysisMatrixLen[i][refChr.index(x)] >= alignmentSizeKb*1000]
+	secondaryAlignments = [analysisMatrixLen[i][refChr.index(j)] for j in secondaryChrs]
+	secondaryAlignmentsOrder = decreasing_rank_simple(secondaryAlignments)
+
+	for j in secondaryAlignmentsOrder:
+		mainChrs3[i] += "_"+secondaryChrs[j]
+		mainChrs3Info[i] += " "+secondaryChrs[j]+"="+str(analysisMatrixLen[i][refChr.index(secondaryChrs[j])])
+
+# Final names
+draftNewChr = []
+for i in range(len(draftChr)):
+	if args.alignmentSizeInfo:
+		draftNewChr += [">" + mainChrs3[i] + " length=" + str(draftLen[i]) + " " + mainChrsInfo[i] + mainChrs3Info[i]]
+	else:
+		draftNewChr += [">" + mainChrs3[i] + " length=" + str(draftLen[i])]
+
+
 
 # create new Fasta file with renamed contigs
 out = open(outputPath, 'w')
