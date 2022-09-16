@@ -2,8 +2,8 @@
 # -*- coding: utf8 -*-
 #----------------------------------------------------------------------------
 # Created By  : vloegler
-# Created Date: 2022/02/26
-# version ='1.0'
+# Created Date: 2022/09/16
+# version ='1.1'
 # ---------------------------------------------------------------------------
 '''
 This script contain all tools and classes to deal with BED coordinates and fasta
@@ -355,6 +355,17 @@ class BED:
 				return (overlap / self.len) * 100
 		else :
 			return overlap
+	def getCenter(self):
+		if self.len == 0:
+			raise Exception("Cannot compute center on a BED with length 0.")
+		elif self.nbIDs > 1:
+			raise Exception("Cannot compute center on a BED with several sequences.")
+		else:
+			meanSum = 0
+			for b in self.coordinates[0]: # For all coordinates of the first (and only) sequence in BED object
+				meanSum += (( b.start + b.end - 1 ) / 2 ) * ( b.end - b.start )
+			return meanSum / self.len
+
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +505,8 @@ if __name__ == "__main__":
 	print("a-b")
 	c = a-b
 	print(c)
+	print("Center C")
+	print(c.getCenter())
 
 	# Create huge BED
 	import random
