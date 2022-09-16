@@ -63,8 +63,9 @@ parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-o", "--output", help="Output file", default = "")
 parser.add_argument("-p", "--percentCovered", help="Percentage of each chromosome that have to be covered", type=int, default=80)
+parser.add_argument("-pid", "--percentCoveredForID", help="Percentage that have to be covered for a specific chromosome. Syntax is chromosome1=75 for min coverage of 75\% on chromosome1. Several allowed after -pid. ", nargs='+', default = "", type=str)
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
-parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=1)
+parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
 
 
 # Read arguments from the command line
@@ -75,6 +76,8 @@ draftPaths=args.draft
 nbDraft=len(draftPaths)
 outputPath=args.output
 percent=int(args.percentCovered)
+percentID=args.percentCoveredForID
+nbIDspecific = len(percentID)
 mummer=args.mummerPath
 if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
@@ -104,6 +107,17 @@ for line in ref.readlines():
 refSeq += [seq]
 ref.close()
 refLen=[len(x) for x in refSeq]
+
+# make list of percentage to cover for each chromosome
+percentList = [percent] * len(refChr) # Default percentage for every Chr
+if nbIDspecific != 0: # If specific percentage for a chromosome
+	for i in range(nbIDspecific):
+		specChr = percentID[i].split("=")[0]
+		specPerc = int(percentID[i].split("=")[1])
+		if specChr not in refChr:
+			raise ValueError("Chromosome ID specified for specific coverage is not found in the reference genome. ")
+		else:
+			percentList[refChr.index(specChr)] = specPerc
 
 
 refName=refPath.split("/")[-1]
@@ -154,7 +168,7 @@ for d in range(nbDraft):
 	# Get number of chromosome covered at X%
 	nbChrPresent = 0
 	for i in range(len(refChr)):
-		if refCoverage[i] >= percent:
+		if refCoverage[i] >= percentList[i]:
 			nbChrPresent += 1
 
 	if outputPath != "":
