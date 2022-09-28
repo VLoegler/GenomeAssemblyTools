@@ -16,7 +16,7 @@ This repository contains usefull python tools to deal with de novo genome assemb
 * Reorder contigs based on a reference genome. Usefull to have a clean diagonal when plotting against the reference. 
 
 **renameContigs.py**
-* Rename contigs based on a reference genome (work in progress). 
+* Rename contigs based on a reference genome. 
 
 ## Genome assembly filtering
 **filterContigSize.py**
