@@ -2,14 +2,14 @@
 # -*- coding: utf8 -*-
 #----------------------------------------------------------------------------
 # Created By  : vloegler
-# Created Date: 2022/09/15
-# version ='1.1'
+# Created Date: 2022/09/28
+# version ='1.2'
 # ---------------------------------------------------------------------------
 '''
 This script rename contigs according to a reference genome, if at least X kb 
-of a contig aligns on a reference chromosome. If a contig aligns on several
-reference chromosomes, all chromosomes name will be indicated, by decreasing 
-order of alignment size. 
+or X% of a contig aligns on a reference chromosome. If a contig aligns on 
+several reference chromosomes, all chromosomes name will be indicated, by 
+order of appearence in the contig. 
 An additionnal argument add the alignment sizes in the contig name. 
 This script uses nucmer and show-coords MUMmer4's functions. 
 
@@ -23,6 +23,7 @@ It takes as input :
 	-d --draft: draft genome assemblies (multi fasta)
 	-o --output: name of output fasta file
 	-k --alignmentSizeKb: Minimum alignment size to have name correspondance (in kb)
+	-p --alignmentSizePercent: Minimum alignment size to have name correspondance (in % of contig size)
 	-i --alignmentSizeInfo: Add alignment size information in contig names
 	-m --mummerPath: Path to mummer function, if not in path
 	-t --threads: Number of threads for nucmer
@@ -70,10 +71,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", required=True)
 parser.add_argument("-o", "--output", help="Name of the outputed VCF", required=True)
-parser.add_argument("-k", "--alignmentSizeKb", help="Minimum alignment size to have name correspondance (in kb, default 30)", type=int, default=30)
+parser.add_argument("-k", "--alignmentSizeKb", help="Minimum alignment size to have name correspondance (in kb, default 50)", type=int, default=50)
+parser.add_argument("-p", "--alignmentSizePercent", help="Minimum alignment size to have name correspondance (in percent, default 20%)", type=int, default=20)
 parser.add_argument("-i", "--alignmentSizeInfo", help="Add alignment size information in contig names", action='store_true')
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
-parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=1)
+parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
 
 
 # Read arguments from the command line
@@ -83,6 +85,7 @@ refPath=args.ref
 draftPath=args.draft
 outputPath=args.output
 alignmentSizeKb=args.alignmentSizeKb
+alignmentSizePercent=args.alignmentSizePercent
 mummer=args.mummerPath
 if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
@@ -93,7 +96,8 @@ print("Arguments detected:")
 print("\t--ref:\t"+refPath)
 print("\t--draft:\t"+draftPath)
 print("\t--output:\t"+outputPath)
-print("\t--alignmentSizeKb:\t"+str(alignmentSizeKb))
+print("\t--alignmentSizeKb:\t"+str(alignmentSizeKb)+"kb")
+print("\t--alignmentSizePercent:\t"+str(alignmentSizePercent)+"%")
 if args.alignmentSizeInfo:
 	print("\t--alignmentSizeInfo")
 if mummer != "":
@@ -102,15 +106,23 @@ if threads != 1:
 	print("\t--threads:\t"+str(threads))
 print('')
 
-
 # =============================
 # Get reference chromosome name
 refChr=[]
+refSeq=[]
+seq=""
 ref=open(refPath, 'r')
 for line in ref.readlines():
 	if line.startswith(">"):
 		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
+		if seq != "":
+			refSeq += [seq]
+		seq=""
+	else:
+		seq += line.strip()
+refSeq += [seq]
 ref.close()
+refLen=[len(x) for x in refSeq]
 
 # =================================
 # Get draft chromosome name and seq
@@ -143,13 +155,18 @@ getShowCoords(refPath, draftPath, prefix, mummer, threads)
 # Cummulative size of alignments will be stored in a matrix with 
 # first dimension: Draft contig
 # second dimension: Reference chromosome
+# analysisMatrixRef contains BED based on ref chr
+# analysisMatrixDraft contains BED based on draft chr
 x = len(draftChr)
 y = len(refChr)
-analysisMatrix = []
+analysisMatrixRef = []
+analysisMatrixDraft = []
 for i in range(x):
-	analysisMatrix.append([])
+	analysisMatrixRef.append([])
+	analysisMatrixDraft.append([])
 	for j in range(y):
-		analysisMatrix[i].append([])
+		analysisMatrixRef[i].append([])
+		analysisMatrixDraft[i].append([])
 
 # Fill matrix
 coordsFile = open(prefix+".coords")
@@ -157,22 +174,35 @@ coords = csv.reader(coordsFile, delimiter="\t")
 for row in coords:
 	draftContigIndex=draftChr.index(row[8])
 	refChrIndex=refChr.index(row[7])
-	# Add alignment length
+
+	# Add alignment length to analysisMatrixRef
 	chr=row[7]
 	startPos=int(row[0])
 	endPos=int(row[1]) + 1
 	if startPos < endPos:
 		coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
 	else:
-		coord2add = BEDcoordinates(id = chr, start = endPos, end = endPos)
-	analysisMatrix[draftContigIndex][refChrIndex] += [coord2add]
+		coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
+	analysisMatrixRef[draftContigIndex][refChrIndex] += [coord2add]
+
+	# Add alignment length to analysisMatrixDraft
+	chr=row[8]
+	startPos=int(row[2])
+	endPos=int(row[3]) + 1
+	if startPos < endPos:
+		coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
+	else:
+		coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
+	analysisMatrixDraft[draftContigIndex][refChrIndex] += [coord2add]
+
 coordsFile.close()
 os.remove(prefix+".coords")
 
 # Convert all point of the matrix to BED object and get length
 for i in range(len(draftChr)):
 	for j in range(len(refChr)):
-		analysisMatrix[i][j] = BED(analysisMatrix[i][j])
+		analysisMatrixDraft[i][j] = BED(analysisMatrixDraft[i][j])
+		analysisMatrixRef[i][j] = BED(analysisMatrixRef[i][j])
 
 # Second matrix just containing length
 x = len(draftChr)
@@ -181,51 +211,93 @@ analysisMatrixLen = []
 for i in range(x):
 	analysisMatrixLen.append([])
 	for j in range(y):
-		analysisMatrixLen[i].append(analysisMatrix[i][j].len)
+		analysisMatrixLen[i].append(analysisMatrixRef[i][j].len)
 
+# Find correspondance between contigs and chromosomes
+# A correspondance is an total alignment size greater than 30kb, 
+# 20% the contig size or 20% the chromosome size
+# Results will be stored in a matrix correspondanceMatrixRef[refIndex][draftIndex]
+# that will contain either 0 (no correspondance between contig and chr)
+# or a number which is the part of Chromosome corresponding
+# 1 = first part or whole chromosome
+# 2 = second part
+# ...
+#
+# A second matrix correspondanceMatrixDraft will contain the order in which the 
+# chromosome fragments are present in the contig
 
-# Assign a main Chr to each contig
-mainChrs = [] # Contain the main chromosome corresponding to each contig
-mainChrsInfo = []
-for i in range(len(draftChr)):
-	mainChrs += [refChr[analysisMatrixLen[i].index(max(analysisMatrixLen[i]))]]
-	mainChrsInfo += [mainChrs[i] + "=" + str(analysisMatrixLen[i][refChr.index(mainChrs[i])])]
+x = len(draftChr)
+y = len(refChr)
+correspondanceMatrixRef = []
+correspondanceMatrixDraft = []
+for i in range(x):
+	correspondanceMatrixRef.append([])
+	correspondanceMatrixDraft.append([])
+	for j in range(y):
+		correspondanceMatrixRef[i].append(0)
+		correspondanceMatrixDraft[i].append(0)
 
-# Check if several contigs are assigned to a single chromosome
-mainChrs2 = mainChrs.copy() # Contain the main chr for each contig + indication of order if several contigs per chr
+# Find fragment of chromosomes
+#numberFragments = [0]*len(refChr)
 for j in range(len(refChr)):
-	if mainChrs2.count(refChr[j]) > 1:
-		# Get index of chromosomes
-		indices = [i for i, x in enumerate(mainChrs2) if x == refChr[j]]
-		# Get centers of alignments
-		centers = [analysisMatrix[i][j].getCenter() for i in indices]
-		suffix = [i+1 for i in rank_simple(centers)]
-		for i in range(len(indices)):
-			mainChrs2[indices[i]] = mainChrs2[indices[i]] + "." + str(suffix[i])
+	contigAssociated = [0]*len(draftChr)
+	for i in range(len(draftChr)):
+		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refLen[j], alignmentSizePercent*0.01*draftLen[i]])
+		if analysisMatrixLen[i][j] >= sizeThreshold:
+			contigAssociated[i] = analysisMatrixRef[i][j].getCenter()
 
-# Add secondary chromosomes (in case of translocation). That is Chromosome aligning on more than X kb on the contig
-mainChrs3 = mainChrs2.copy() # Contains additional chromosome aligned on contig because of translocations
-mainChrs3Info = [""] * len(draftChr)
+	# Order chromosome fragments
+	contigAssociatedOrder = [0]*len(draftChr)
+	centers = [x for x in contigAssociated if x > 0]
+	for i in range(len(draftChr)):
+		if contigAssociated[i] != 0:
+			correspondanceMatrixRef[i][j] = 1 + sorted(centers).index(contigAssociated[i])
+
+
+
 for i in range(len(draftChr)):
-	main = mainChrs[i]
-	mainAlignment = analysisMatrixLen[i][refChr.index(main)]
+	chromoAssociated = [0]*len(refChr)
+	for j in range(len(refChr)):
+		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refLen[j], alignmentSizePercent*0.01*draftLen[i]])
+		if analysisMatrixLen[i][j] >= sizeThreshold:
+			chromoAssociated[j] = analysisMatrixDraft[i][j].getCenter()
 
-	secondaryChrs = [x for x in refChr if x != main and analysisMatrixLen[i][refChr.index(x)] >= alignmentSizeKb*1000]
-	secondaryAlignments = [analysisMatrixLen[i][refChr.index(j)] for j in secondaryChrs]
-	secondaryAlignmentsOrder = decreasing_rank_simple(secondaryAlignments)
+	# Order chromosome in contigs
+	chromoAssociatedOrder = [0]*len(refChr)
+	centers = [x for x in chromoAssociated if x > 0]
+	for j in range(len(refChr)):
+		if chromoAssociated[j] != 0:
+			correspondanceMatrixDraft[i][j] = 1 + sorted(centers).index(chromoAssociated[j])
 
-	for j in secondaryAlignmentsOrder:
-		mainChrs3[i] += "_"+secondaryChrs[j]
-		mainChrs3Info[i] += " "+secondaryChrs[j]+"="+str(analysisMatrixLen[i][refChr.index(secondaryChrs[j])])
-
-# Final names
+# Get name of each contig
 draftNewChr = []
+unplacedNb=0
 for i in range(len(draftChr)):
-	if args.alignmentSizeInfo:
-		draftNewChr += [">" + mainChrs3[i] + " length=" + str(draftLen[i]) + " " + mainChrsInfo[i] + mainChrs3Info[i]]
+	newName = ">"
+	additionnalInfo = " AlignmentSizeOnRef:"
+	nbChrInContig = max(correspondanceMatrixDraft[i]) # Number of chr in the contig
+	if nbChrInContig > 0:
+		for n in range(nbChrInContig):
+			if n != 0:
+				newName += "_"
+				additionnalInfo += ","
+			# Add Chr Name
+			j = correspondanceMatrixDraft[i].index(n+1)
+			newName += refChr[j]
+			# Add Chr fragment, if chromosome if fragmented
+			if max([x[j] for x in correspondanceMatrixRef]) > 1:
+				newName += "."+str(correspondanceMatrixRef[i][j])
+			# Add alignment size
+			additionnalInfo += refChr[j] + "=" + str(analysisMatrixLen[i][j])
 	else:
-		draftNewChr += [">" + mainChrs3[i] + " length=" + str(draftLen[i])]
+		unplacedNb += 1
+		newName += "Unplaced." + str(unplacedNb)
+		additionnalInfo = ""
 
+	if args.alignmentSizeInfo:
+		draftNewChr += [newName+" length="+str(draftLen[i])+additionnalInfo]
+	else:
+		draftNewChr += [newName+" length="+str(draftLen[i])]
 
 
 # create new Fasta file with renamed contigs
