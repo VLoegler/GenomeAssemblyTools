@@ -54,7 +54,7 @@ parser.add_argument("-d", "--draft", help="draft genome assembly (multi fasta)",
 parser.add_argument("-db", "--database", help="the blast database of nuclear chromosomes (done with makeblastdb). Either reference or Database must be given", default = "")
 parser.add_argument("-r", "--reference", help="referance of the nuclear genome (multifasta). Either reference or Database must be given", default = "")
 parser.add_argument("-m", "--minLength", help="minimum length of a contig (kb)", type=int, default=1)
-parser.add_argument("-a", "--minAlignedLength", help="minimum alignment length on the nuclear genome (kb)", type=int, default=2)
+parser.add_argument("-a", "--minAlignedLength", help="minimum alignment length on the nuclear genome (kb)", type=float, default=2)
 parser.add_argument("-o", "--output", help="Prefix of the output file", required=True)
 parser.add_argument("-b", "--blastPath", help="Path to blast+ function, if not in path", type=str, default="")
 
