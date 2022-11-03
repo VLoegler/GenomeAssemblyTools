@@ -33,7 +33,7 @@ This repository contains usefull python tools to deal with de novo genome assemb
 * Give the number of contig required to cover X% of a reference genome. 
 
 **checkChromosomePresence.py**
-* Take a reference genome and indicate how many reference chromosomes are covered at X % (80% default) by the draft assembly. 
+* Take a reference genome and indicate how many reference chromosomes are covered at X % (80% default) by the draft assembly. A detailled output (-i) gives the coverage of each chromosome of the reference. 
 
 **findDoubleCentromeres.py**
 * Take the centromere sequence and indicate how many contigs contain more than 1 centromere. 
