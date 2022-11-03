@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.0'
+# version ='1.1'
 # ---------------------------------------------------------------------------
 '''
 This script check if all chromosomes of a reference are covered by
@@ -17,6 +17,7 @@ It takes as input :
 	-p --percentCovered: Percentage of each chromosome that have to be covered
 	-m --mummerPath: Path to mummer function, if not in path
 	-t --threads: Number of threads for nucmer
+	-i --detailledInfo: Display the coverage of each chromosome of the reference
 
 Output will be:
 Assembly	NbChrCovered
@@ -64,6 +65,7 @@ parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)
 parser.add_argument("-o", "--output", help="Output file", default = "")
 parser.add_argument("-p", "--percentCovered", help="Percentage of each chromosome that have to be covered", type=int, default=80)
 parser.add_argument("-pid", "--percentCoveredForID", help="Percentage that have to be covered for a specific chromosome. Syntax is chromosome1=75 for min coverage of 75\% on chromosome1. Several allowed after -pid. ", nargs='+', default = "", type=str)
+parser.add_argument("-i", "--detailledInfo", help="Display the coverage of each chromosome of the reference", action='store_true')
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
 parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
 
@@ -83,12 +85,21 @@ if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
 threads=args.threads
 
+
+
 # Write header in output file
-if outputPath != "":
-	out = open(outputPath, 'w')
-	out.write("Assembly\nNbChrPresent\n")
+if args.detailledInfo:
+	if outputPath != "":
+		out = open(outputPath, 'w')
+		out.write("Assembly\tChromosome\tCoverage\n")
+	else:
+		print("Assembly\tChromosome\tCoverage")
 else:
-	print("Assembly\tNbChrPresent")
+	if outputPath != "":
+		out = open(outputPath, 'w')
+		out.write("Assembly\nNbChrPresent\n")
+	else:
+		print("Assembly\tNbChrPresent")
 
 # ========================================
 # Get reference chromosome name and length
@@ -165,16 +176,26 @@ for d in range(nbDraft):
 	for i in range(len(refChr)):
 		refCoverage += [refBED.getID(refChr[i]).overlapLen(alignmentBEDs[i], percent = True)]
 
-	# Get number of chromosome covered at X%
-	nbChrPresent = 0
-	for i in range(len(refChr)):
-		if refCoverage[i] >= percentList[i]:
-			nbChrPresent += 1
+	# Output detailled for each chromosome
+	if args.detailledInfo:
+		for i in range(len(refChr)):
+			if outputPath != "":
+				out.write(draftName + "\t" + refChr[i] + "\t" + str(refCoverage[i]) + "\n")
+			else: 
+				print(draftName + "\t" + refChr[i] + "\t" + str(refCoverage[i]))
 
-	if outputPath != "":
-		out.write(draftName + "\t" + str(nbChrPresent) + "\n")
-	else: 
-		print(draftName + "\t" + str(nbChrPresent))
+	# Output total number of chromosome presents
+	else:
+		# Get number of chromosome covered at X%
+		nbChrPresent = 0
+		for i in range(len(refChr)):
+			if refCoverage[i] >= percentList[i]:
+				nbChrPresent += 1
+
+		if outputPath != "":
+			out.write(draftName + "\t" + str(nbChrPresent) + "\n")
+		else: 
+			print(draftName + "\t" + str(nbChrPresent))
 
 if outputPath != "":
 	out.close()
