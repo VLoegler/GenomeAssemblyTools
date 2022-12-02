@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/28
-# version ='1.2'
+# version ='1.3'
 # ---------------------------------------------------------------------------
 '''
 This script rename contigs according to a reference genome, if at least X kb 
@@ -24,6 +24,7 @@ It takes as input :
 	-o --output: name of output fasta file
 	-k --alignmentSizeKb: Minimum alignment size to have name correspondance (in kb)
 	-p --alignmentSizePercent: Minimum alignment size to have name correspondance (in % of contig size)
+	-P --prefix: Prefix to add before the chromosome name
 	-i --alignmentSizeInfo: Add alignment size information in contig names
 	-m --mummerPath: Path to mummer function, if not in path
 	-t --threads: Number of threads for nucmer
@@ -73,6 +74,7 @@ parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)
 parser.add_argument("-o", "--output", help="Name of the outputed VCF", required=True)
 parser.add_argument("-k", "--alignmentSizeKb", help="Minimum alignment size to have name correspondance (in kb, default 50)", type=int, default=50)
 parser.add_argument("-p", "--alignmentSizePercent", help="Minimum alignment size to have name correspondance (in percent, default 20%)", type=int, default=20)
+parser.add_argument("-P", "--prefix", help="Prefix to add before the chromosome name", type=str, default="")
 parser.add_argument("-i", "--alignmentSizeInfo", help="Add alignment size information in contig names", action='store_true')
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
 parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
@@ -86,6 +88,7 @@ draftPath=args.draft
 outputPath=args.output
 alignmentSizeKb=args.alignmentSizeKb
 alignmentSizePercent=args.alignmentSizePercent
+ChrPrefix=args.prefix
 mummer=args.mummerPath
 if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
@@ -98,6 +101,8 @@ print("\t--draft:\t"+draftPath)
 print("\t--output:\t"+outputPath)
 print("\t--alignmentSizeKb:\t"+str(alignmentSizeKb)+"kb")
 print("\t--alignmentSizePercent:\t"+str(alignmentSizePercent)+"%")
+if ChrPrefix != "":
+	print("\t--prefix:\t"+ChrPrefix)
 if args.alignmentSizeInfo:
 	print("\t--alignmentSizeInfo")
 if mummer != "":
@@ -274,6 +279,9 @@ draftNewChr = []
 unplacedNb=0
 for i in range(len(draftChr)):
 	newName = ">"
+	if ChrPrefix != "":
+		newName += ChrPrefix+"_"
+
 	additionnalInfo = " AlignmentSizeOnRef:"
 	nbChrInContig = max(correspondanceMatrixDraft[i]) # Number of chr in the contig
 	if nbChrInContig > 0:
