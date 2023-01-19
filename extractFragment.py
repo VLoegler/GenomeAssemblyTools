@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.3'
+# version ='1.4'
 # ---------------------------------------------------------------------------
 '''
 This script extract a sequence from a fasta file
@@ -108,14 +108,20 @@ for ID in Chr:
 			else:
 				out.write(">" + ID + "\n")
 			seq=re.sub("(.{80})", "\\1\n", extractedSeq, 0, re.DOTALL)
-			out.write(seq+"\n")
+			if seq.endswith('\n'):
+				out.write(seq)
+			else:
+				out.write(seq+"\n")
 		else:
 			if start != 0 or end != 0:
 				print(">" + ID + "_" + str(start) + ".." + str(end))
 			else:
 				print(">" + ID)
 			seq=re.sub("(.{80})", "\\1\n", extractedSeq, 0, re.DOTALL)
-			print(seq)
+			if seq.endswith('\n'):
+				print(seq[:-1]) # Remove the last \n
+			else:
+				print(seq)
 
 
 if outputPath != "":
