@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.1'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script check if there are contigs corresponding to merged chromosomes
@@ -27,7 +27,6 @@ Draft3		1
 '''
 # ---------------------------------------------------------------------------
 import os
-import sys
 import argparse
 import time
 from datetime import datetime
@@ -52,13 +51,17 @@ def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = """This script check if there are contigs corresponding to merged chromosomes
+of a reference. It looks if a single contigs aligns on more than 90% of 2 
+reference chromosomes. 
+It uses the nucmer (--maxmatch) and show-coords MUMmer4's functions
+""")
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-o", "--output", help="Name of the output file", required=True)
 parser.add_argument("-p", "--percentToMatch", help="Percentage a contig has to cover on each chromosome to be considered as a merge", type=int, default=90)
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
-parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=1)
+parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
 
 
 # Read arguments from the command line
@@ -80,22 +83,7 @@ out.write("Assembly\tNbMergedContigs\n")
 
 # ========================================
 # Get reference chromosome name and length
-refChr=[]
-refSeq=[]
-seq=""
-ref=open(refPath, 'r')
-for line in ref.readlines():
-	if line.startswith(">"):
-		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-		if seq != "":
-			refSeq += [seq]
-		seq=""
-	else:
-		seq += line.strip()
-refSeq += [seq]
-ref.close()
-refLen=[len(x) for x in refSeq]
-
+refFasta = Fasta(refPath)
 refName=refPath.split("/")[-1]
 
 # ==================================================
@@ -109,12 +97,7 @@ for d in range(nbDraft):
 	startTime = time.time()
 
 	# Get draft contig name
-	draftChr=[]
-	draft=open(draftPaths[d], 'r')
-	for line in draft.readlines():
-		if line.startswith(">"):
-			draftChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-	draft.close()
+	draftFasta = Fasta(draftPaths[d])
 
 	# Align draft to ref
 	prefix = "Alignment_" + refName + "_" + draftName + "_" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%m_%f") + "_" + str(randint(0, 10000))
@@ -129,8 +112,8 @@ for d in range(nbDraft):
 	# Create a matrix which will contain BEDcoordinates objects of covered regions
 	# First dimension: draft contigs
 	# Second dimension: reference chromosomes
-	x = len(draftChr)
-	y = len(refChr)
+	x = len(draftFasta)
+	y = len(refFasta)
 	analysisMatrix = []
 	for i in range(x):
 		analysisMatrix.append([])
@@ -141,8 +124,8 @@ for d in range(nbDraft):
 	coordsFile = open(prefix+".coords")
 	coords = csv.reader(coordsFile, delimiter="\t")
 	for row in coords:
-		draftContigIndex=draftChr.index(row[8])
-		refChrIndex=refChr.index(row[7])
+		draftContigIndex=draftFasta.getIndexFromID(row[8])
+		refChrIndex=refFasta.getIndexFromID(row[7])
 		# get BEDcoordinates to add
 		chr=row[7]
 		startPos=int(row[0])
@@ -154,21 +137,21 @@ for d in range(nbDraft):
 	os.remove(prefix+".coords")
 
 	# Merge all BEDcoordinates in one BED per point in the matrix
-	for i in range(len(draftChr)):
-		for j in range(len(refChr)):
+	for i in range(len(draftFasta)):
+		for j in range(len(refFasta)):
 			analysisMatrix[i][j] = BED(analysisMatrix[i][j])
 
 	# For each point of the matrix, get the percentage of reference chromosome covered
-	for i in range(len(draftChr)):
-		for j in range(len(refChr)):
+	for i in range(len(draftFasta)):
+		for j in range(len(refFasta)):
 			# Get ref chr BED
-			refChrBED = refBED.getID(refChr[j])
+			refChrBED = refBED.getID(refFasta.getID()[j])
 			# Get proportion of chromosome covered
 			analysisMatrix[i][j] = refChrBED.overlapLen(analysisMatrix[i][j], percent = True)
 
 	# For each draft contig, check if it is not 2 merged reference chromosomes
 	nbContigsMerged = 0
-	for i in range(len(draftChr)):
+	for i in range(len(draftFasta)):
 		# If coverage is superior to 90% for more than one ref chromosome: it is a merged contig
 		supToX = len([x for x in analysisMatrix[i] if x >= percent])
 		if supToX > 1:

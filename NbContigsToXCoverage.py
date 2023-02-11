@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.1'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script check how many contigs are needed to cover X% of the reference
@@ -25,9 +25,9 @@ Draft3		16
 '''
 # ---------------------------------------------------------------------------
 import os
-import sys
 import argparse
 import time
+import sys
 from datetime import datetime
 from random import randint
 from Tools import *
@@ -57,13 +57,18 @@ def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = 
+'''
+This script check how many contigs are needed to cover X% of the reference
+It uses the nucmer (--maxmatch) and show-coords MUMmer4's functions. 
+'''
+)
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-o", "--output", help="Output file", default = "")
 parser.add_argument("-p", "--percentCovered", help="Percentage of the genome which has to be covered", type=int, default=95)
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
-parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=1)
+parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
 
 
 # Read arguments from the command line
@@ -87,23 +92,7 @@ else:
 	print("Assembly\tNbContigsTo" + str(percent))
 
 # ========================================
-# Get reference chromosome name and length
-refChr=[]
-refSeq=[]
-seq=""
-ref=open(refPath, 'r')
-for line in ref.readlines():
-	if line.startswith(">"):
-		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-		if seq != "":
-			refSeq += [seq]
-		seq=""
-	else:
-		seq += line.strip()
-refSeq += [seq]
-ref.close()
-refLen=[len(x) for x in refSeq]
-
+# Get ref file name
 refName=refPath.split("/")[-1]
 
 # ==================================================
@@ -118,11 +107,10 @@ for d in range(nbDraft):
 
 	# Get draft contig name
 	draftChr=[]
-	draft=open(draftPaths[d], 'r')
-	for line in draft.readlines():
-		if line.startswith(">"):
-			draftChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-	draft.close()
+	with open(draftPaths[d], 'r') as draft:
+		for line in draft:
+			if line.startswith(">"):
+				draftChr += [line.split(">")[1].split()[0]]
 
 	# Align draft to ref
 	prefix = "Alignment_" + refName + "_" + draftName + "_" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%m_%f") + "_" + str(randint(0, 10000))
@@ -139,16 +127,15 @@ for d in range(nbDraft):
 	# Get reference coverage for each contig
 	alignmentBEDs = [[] for i in range(len(draftChr))]
 	# Alignments BED will contain per contig the BED of alignments of this contig on the reference genome
-	coords = open(prefix+".coords", 'r')
-	for line in coords.readlines():
-		refStart = int(line.split("\t")[0])
-		refEnd = int(line.split("\t")[1]) + 1
-		refChr = line.split("\t")[7]
-		contig = line.strip().split("\t")[8]
-		contigIndex = draftChr.index(contig)
+	with open(prefix+".coords", 'r') as coords:
+		for line in coords:
+			refStart = int(line.split("\t")[0])
+			refEnd = int(line.split("\t")[1]) + 1
+			refChr = line.split("\t")[7]
+			contig = line.strip().split("\t")[8]
+			contigIndex = draftChr.index(contig)
 
-		alignmentBEDs[contigIndex] += [BEDcoordinates(id = refChr, start = refStart, end = refEnd)]
-	coords.close()
+			alignmentBEDs[contigIndex] += [BEDcoordinates(id = refChr, start = refStart, end = refEnd)]
 
 	# Convert all to BED
 	alignmentBEDs = [BED(x) for x in alignmentBEDs]
@@ -185,9 +172,9 @@ for d in range(nbDraft):
 	os.remove(prefix+".coords")
 
 	if outputPath != "":
-		out.write(draftName + "\t" + str(n) + "\n")
+		out.write(f'{draftName}\t{n}\n')
 	else:
-		print(draftName + "\t" + str(n))
+		sys.stdout.write(f'{draftName}\t{n}\n')
 
 if outputPath != "":
 	out.close()

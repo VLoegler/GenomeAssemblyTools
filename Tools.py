@@ -3,19 +3,24 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/16
-# version ='1.1'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
-This script contain all tools and classes to deal with BED coordinates and fasta
-files. 
+This script contains all tools and classes to deal with BED coordinates and
+fasta files. 
+It implements the classes:
+	- BEDcoordinates: One object correspond to a simple genomic coordinates, 
+					  with chromosome ID, start and end (0-based exclusive)
+	- BED: One object correspond to a list of BEDcoordinate objects. 
+		   The class contains methods to add or substract BED objects, 
+		   get the overlap length between different objects
+	- Fasta: One object correspond to a fasta file, with multiple sequences
+			 designed by an identifier. 
 '''
 # ---------------------------------------------------------------------------
 #from __future__ import annotations
-import os
-import sys
 import time
-import csv
-from typing import List
+import re
 # ---------------------------------------------------------------------------
 
 def rank_simple(vector):
@@ -195,7 +200,7 @@ class BED:
 				if max([len(x) for x in self.coordinates]) > 1: # If there is more than one BEDcoordinates per id
 					self.removeOverlap()
 				self.order()
-				self.len = self.getLen()
+				self.len = len(self)
 	def removeOverlap(self):
 		# This function check if there is an overlap between some coordinates
 		# and merge them if it is the case
@@ -233,7 +238,7 @@ class BED:
 			subOrder = rank_simple(startPositions)
 			newCoordinates = [self.coordinates[i][j] for j in subOrder]
 			self.coordinates[i] = newCoordinates.copy()
-	def getLen(self):
+	def __len__(self):
 		lengths = []
 		for i in range(self.nbIDs):
 			lengths += [b.end-b.start for b in self.coordinates[i]]
@@ -261,20 +266,12 @@ class BED:
 			return newBED
 		else: 
 			raise Exception("Wrong type argument given. Sub operator only takes BED objects. ")
-	#def getCoordinates(self, index:int):
-	#	return self.coordinates[index]
 	def getID(self, id:str):
 		# return a BED of all coordinates with id
 		if id in self.IDs:
 			return BED(self.coordinates[self.IDs.index(id)])
 		else:
 			return BED()
-	#def removeCoordinates(self, index:int):
-	#	newCoordinates = self.coordinates.copy()
-	#	del newCoordinates[index]
-	#	self.coordinates = newCoordinates
-	#	self.nbIDs = len(self.coordinates)
-	#	self.len = self.getLen()
 	def addCoordinates(self, b:BEDcoordinates):
 		if b.void:
 			pass
@@ -309,7 +306,7 @@ class BED:
 					self.coordinates[i] = newCoordinates + [b]
 					self.order()
 		self.nbIDs = len(self.coordinates)
-		self.len = self.getLen()
+		self.len = len(self)
 	def checkOverlap(self):
 		# This function check if there is an overlap between coordinates and return True of False
 		for i in range(self.nbIDs):
@@ -332,7 +329,7 @@ class BED:
 				for b1 in self.coordinates[indexId]:
 					newCoordinates += b1.substractCoordinates(b2)
 				self.coordinates[indexId] = newCoordinates
-				self.len = self.getLen()
+				self.len = len(self)
 	def substractBED(self, B:BED):
 		if B.nbIDs == 0:
 			pass
@@ -365,6 +362,103 @@ class BED:
 			for b in self.coordinates[0]: # For all coordinates of the first (and only) sequence in BED object
 				meanSum += (( b.start + b.end - 1 ) / 2 ) * ( b.end - b.start )
 			return meanSum / self.len
+
+class Sequence:
+	"""
+	This class implement object corresponding to a single DNA or protein sequence, 
+	with an identifier, description and sequence. 
+	"""
+	def __init__(self, header, sequence):
+		if not header.startswith('>'):
+			header = '>' + header
+		if not header.endswith('\n'):
+			header += '\n'
+		self.seq = sequence
+		self.id = header.split()[0].split('>')[1]
+		self.description = header
+
+	def __len__(self):
+		return len(self.seq)
+
+	def __str__(self):
+		seq_to_print=re.sub("(.{80})", "\\1\n", self.seq, 0, re.DOTALL)
+		if seq_to_print.endswith('\n'):
+			seq_to_print = seq_to_print[:-1]
+		return self.description + seq_to_print
+
+	def reverseComplement(self):
+		complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N':'N', 'S':'S', 'W':'W', 'Y':'R', 'R':'Y', 'M':'K', 'K':'M', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n':'n', 's':'s', 'w':'w', 'y':'r', 'r':'y', 'm':'k', 'k':'m'}
+		self.seq = ''.join([complement[base] for base in self.seq[::-1]])
+
+
+class Fasta:
+	"""
+	This class implement objects that are lists of Sequence objects. 
+	"""
+	def __init__(self, input = None):
+		if input == None:
+			# create a void Fasta
+			self.sequences = []
+		elif isinstance(input, str):
+			# If input is the path to a fasta file
+			self.sequences = [] # List of Sequence objects
+			# Read fasta file
+			with open(input, 'r') as fasta:
+				seq = ""
+				for line in fasta:
+					if line.startswith(">"):
+						if seq != "":
+							self.sequences += [Sequence(header, seq)]
+							seq=""
+						header = line
+					else:
+						seq += line.strip()
+				self.sequences += [Sequence(header, seq)] # Add last sequence of the file
+		elif all((isinstance(x, Sequence) for x in input)):
+			# If input is a list of Sequence objects
+			self.sequences = input
+		else:
+			raise Exception("Input value must eather be the path to a fasta file (string) or a list of Sequence objects.")
+
+	def __str__(self):
+		return "\n".join([x.__str__() for x in self.sequences])
+
+	def __add__(self, Fasta2):
+		return Fasta(self.sequences + Fasta2.sequences)
+	
+	def __iter__(self):
+		return iter(self.sequences)
+
+	def getSeq(self):
+		"Return a list of all the sequences in the Fasta object. "
+		return [x.seq for x in self.sequences]
+
+	def getSeqFromID(self, ID):
+		"Return the sequence corresponding to a specific ID. "
+		output = self.sequences[self.getID().index(ID)]
+		return output.seq
+
+	def getID(self):
+		"Return the list of all the ID in the Fasta object. "
+		return [x.id for x in self.sequences]
+	
+	def __len__(self):
+		"Return the number of sequences in the object. "
+		return len(self.sequences)
+
+	def getLengths(self):
+		"Return a list containing the length of each sequence. "
+		return [len(x) for x in self.sequences]
+
+	def getIndexFromID(self, ID):
+		"Return the index of an ID in the object. "
+		return self.getID().index(ID)
+	
+	def toFile(self, path):
+		"Write fasta to a file"
+		with open(path, 'w') as output:
+			output.write(self.__str__() + '\n')
+
 
 
 
@@ -415,7 +509,7 @@ def getBED(fastaPath):
 	Seq=[]
 	seq=""
 	fasta=open(fastaPath, 'r')
-	for line in fasta.readlines():
+	for line in fasta:
 		if line.startswith(">"):
 			Chr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
 			if seq != "":
@@ -437,25 +531,7 @@ def getBED(fastaPath):
 	return fastaBED
 
 
-'''
-def rank_simple(vector):
-	return sorted(range(len(vector)), key=vector.__getitem__)
 
-def decreasing_rank_simple(vector):
-	return sorted(range(len(vector)), key=vector.__getitem__)[::-1]
-
-def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
-	# Run nucmer
-	#nucmerShellCommand=mummerPath+"nucmer -t "+str(threads)+" --maxmatch --prefix "+prefix+" "+refPath+" "+draftPath
-	nucmerShellCommand=mummerPath+"nucmer -t "+str(threads)+" --mum --prefix "+prefix+" "+refPath+" "+draftPath
-	os.system(nucmerShellCommand)
-	# Run show coords
-	showcoordsShellCommand=mummerPath+"show-coords -TH "+prefix+".delta > "+prefix+".coords"
-	os.system(showcoordsShellCommand)
-	# Remove nucmer delta file
-	os.remove(prefix+".delta")
-
-'''
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -474,8 +550,8 @@ if __name__ == "__main__":
 	print("Merge 3 BEDs")
 	d = BED(a, b, c)
 	print(d)
-	print("getLen()")
-	print(d.getLen())
+	print("len(d)")
+	print(len(d))
 	print("Create BED with BED, BEDcoordinates and list of BEDcoordinates objects")
 	e = BED(c, b, BEDcoordinates(id = "aa", start = 3, end = 7), BEDcoordinates(id = "z", start = 3, end = 7), [BEDcoordinates(id = "z", start = 30, end = 70), BEDcoordinates(id = "z", start = 5, end = 15)])
 	print(e)
@@ -530,4 +606,31 @@ if __name__ == "__main__":
 	print(a)
 	print("Ran in " + str(round(endTime - startTime)) + "s")
 
+	# Testing fasta classes
+	print("TESTING Fasta CLASS")
+	with open("testFile.fasta", "w") as file:
+		file.write(">Sequence1 length=20\n")
+		file.write("ACGaTCAGATcgatcgatag\n")
+		file.write(">Sequence2 length=300\n")
+		file.write("ACGaTCAGATcgatcgatagTGACTGACTG\n"*10)
+	f = Fasta("testFile.fasta")
+	print("print(f)")
+	print(f)
+	print("Create void Fasta")
+	print("f2 = Fasta()")
+	f2 = Fasta()
+	f2
+	print("concatenate f twice")
+	f2 = f + f
+	print("f2")
+	print(f2)
+	print("s = f.getSeq()")
+	s = f.getSeq()
+	print(s)
+	print("i = f.getID()")
+	i = f.getID()
+	print(i)
+	print("seq1 = f.getSeqFromID(\"Sequence1\")")
+	seq1 = f.getSeqFromID("Sequence1")
+	print(seq1)
 

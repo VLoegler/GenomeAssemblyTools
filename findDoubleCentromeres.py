@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.0'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script retrieve centromeres in an assembly and count the number of
@@ -26,14 +26,10 @@ Draft2		0
 Draft3		1
 '''
 # ---------------------------------------------------------------------------
-import csv
 import os
-import sys
 import argparse
 from datetime import datetime
 from random import randint
-import re
-import time
 # ---------------------------------------------------------------------------
 # Definitions
 def blastn(query, subject, blastPath, out):
@@ -46,7 +42,9 @@ def blastn(query, subject, blastPath, out):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = 
+	"""This script retrieve centromeres in an assembly and count the number of contigs containing more than 1 centromere (probably falsly merged chromosomes). 
+	blast+ is used in this script. If blast+ is not in the path, the path can be added to the variable blast. """)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-c", "--centromere", help="reference sequence of centromeres (multi fasta)", required = True)
 parser.add_argument("-o", "--output", help="Prefix of the output file", default = "")
@@ -82,19 +80,17 @@ for d in range(nbDraft):
 
 	# Get all contigs
 	draftChr = []
-	draft=open(draftPath, 'r')
-	for line in draft.readlines():
-		if line.startswith(">"):
-			draftChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-	draft.close()
+	with open(draftPath, 'r') as draft:
+		for line in draft:
+			if line.startswith(">"):
+				draftChr += [line.split(">")[1].split()[0]]
 
 	# Count number of centromere per contig
 	centromeres = [0]*len(draftChr)
-	blastResults = open(blastResultsPath, "r")
-	for line in blastResults.readlines():
-		Chr = line.split("\t")[1]
-		centromeres[draftChr.index(Chr)] += 1
-	blastResults.close()
+	with open(blastResultsPath, "r") as blastResults:
+		for line in blastResults:
+			Chr = line.split()[1]
+			centromeres[draftChr.index(Chr)] += 1
 	os.remove(blastResultsPath)
 
 	# Count number of contigs with more than 1 centromere

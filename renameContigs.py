@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/28
-# version ='1.3'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script rename contigs according to a reference genome, if at least X kb 
@@ -33,14 +33,11 @@ Output will be fasta with renamed contigs.
 '''
 # ---------------------------------------------------------------------------
 import os
-import sys
 import argparse
-import time
 import csv
 from datetime import datetime
 from random import randint
 from Tools import *
-import re
 # ---------------------------------------------------------------------------
 # Definitions
 
@@ -68,12 +65,28 @@ def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = 
+'''
+This script rename contigs according to a reference genome, if at least X kb 
+or X% of a contig aligns on a reference chromosome. If a contig aligns on 
+several reference chromosomes, all chromosomes name will be indicated, by 
+order of appearence in the contig. 
+An additionnal argument add the alignment sizes in the contig name. 
+This script uses nucmer and show-coords MUMmer4's functions. 
+
+It's better to use a reference with transposable elements masked, for example
+with RepeatMasker:
+	[RepeatMasker reference.fasta -lib TransposableElements.fasta -s -e ncbi]
+and with telomeres masked.
+
+Output will be fasta with renamed contigs. 
+'''
+)
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", required=True)
-parser.add_argument("-o", "--output", help="Name of the outputed VCF", required=True)
+parser.add_argument("-o", "--output", help="Name of the outputed Fasta", required=True)
 parser.add_argument("-k", "--alignmentSizeKb", help="Minimum alignment size to have name correspondance (in kb, default 50)", type=int, default=50)
-parser.add_argument("-p", "--alignmentSizePercent", help="Minimum alignment size to have name correspondance (in percent, default 20%)", type=int, default=20)
+parser.add_argument("-p", "--alignmentSizePercent", help="Minimum alignment size to have name correspondance (in percent, default 20)", type=int, default=20)
 parser.add_argument("-P", "--prefix", help="Prefix to add before the chromosome name", type=str, default="")
 parser.add_argument("-i", "--alignmentSizeInfo", help="Add alignment size information in contig names", action='store_true')
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
@@ -112,40 +125,13 @@ if threads != 1:
 print('')
 
 # =============================
-# Get reference chromosome name
-refChr=[]
-refSeq=[]
-seq=""
-ref=open(refPath, 'r')
-for line in ref.readlines():
-	if line.startswith(">"):
-		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-		if seq != "":
-			refSeq += [seq]
-		seq=""
-	else:
-		seq += line.strip()
-refSeq += [seq]
-ref.close()
-refLen=[len(x) for x in refSeq]
+# Read reference fasta
+refFasta = Fasta(refPath)
 
 # =================================
-# Get draft chromosome name and seq
-draftChr=[]
-draftSeq=[]
-seq=""
-draft=open(draftPath, 'r')
-for line in draft.readlines():
-	if line.startswith(">"):
-		draftChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-		if seq != "":
-			draftSeq += [seq]
-		seq=""
-	else:
-		seq += line.strip()
-draftSeq += [seq]
-draft.close()
-draftLen=[len(x) for x in draftSeq]
+# Read draft fasta
+draftFasta = Fasta(draftPath)
+
 
 refName=refPath.split("/")[-1]
 draftName=draftPath.split("/")[-1]
@@ -162,8 +148,8 @@ getShowCoords(refPath, draftPath, prefix, mummer, threads)
 # second dimension: Reference chromosome
 # analysisMatrixRef contains BED based on ref chr
 # analysisMatrixDraft contains BED based on draft chr
-x = len(draftChr)
-y = len(refChr)
+x = len(draftFasta)
+y = len(refFasta)
 analysisMatrixRef = []
 analysisMatrixDraft = []
 for i in range(x):
@@ -174,44 +160,43 @@ for i in range(x):
 		analysisMatrixDraft[i].append([])
 
 # Fill matrix
-coordsFile = open(prefix+".coords")
-coords = csv.reader(coordsFile, delimiter="\t")
-for row in coords:
-	draftContigIndex=draftChr.index(row[8])
-	refChrIndex=refChr.index(row[7])
+with open(prefix+".coords") as coordsFile:
+	coords = csv.reader(coordsFile, delimiter="\t")
+	for row in coords:
+		draftContigIndex=draftFasta.getIndexFromID(row[8])
+		refChrIndex=refFasta.getIndexFromID(row[7])
 
-	# Add alignment length to analysisMatrixRef
-	chr=row[7]
-	startPos=int(row[0])
-	endPos=int(row[1]) + 1
-	if startPos < endPos:
-		coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
-	else:
-		coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
-	analysisMatrixRef[draftContigIndex][refChrIndex] += [coord2add]
+		# Add alignment length to analysisMatrixRef
+		chr=row[7]
+		startPos=int(row[0])
+		endPos=int(row[1]) + 1
+		if startPos < endPos:
+			coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
+		else:
+			coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
+		analysisMatrixRef[draftContigIndex][refChrIndex] += [coord2add]
 
-	# Add alignment length to analysisMatrixDraft
-	chr=row[8]
-	startPos=int(row[2])
-	endPos=int(row[3]) + 1
-	if startPos < endPos:
-		coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
-	else:
-		coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
-	analysisMatrixDraft[draftContigIndex][refChrIndex] += [coord2add]
+		# Add alignment length to analysisMatrixDraft
+		chr=row[8]
+		startPos=int(row[2])
+		endPos=int(row[3]) + 1
+		if startPos < endPos:
+			coord2add = BEDcoordinates(id = chr, start = startPos, end = endPos)
+		else:
+			coord2add = BEDcoordinates(id = chr, start = endPos, end = startPos)
+		analysisMatrixDraft[draftContigIndex][refChrIndex] += [coord2add]
 
-coordsFile.close()
 os.remove(prefix+".coords")
 
 # Convert all point of the matrix to BED object and get length
-for i in range(len(draftChr)):
-	for j in range(len(refChr)):
+for i in range(len(draftFasta)):
+	for j in range(len(refFasta)):
 		analysisMatrixDraft[i][j] = BED(analysisMatrixDraft[i][j])
 		analysisMatrixRef[i][j] = BED(analysisMatrixRef[i][j])
 
 # Second matrix just containing length
-x = len(draftChr)
-y = len(refChr)
+x = len(draftFasta)
+y = len(refFasta)
 analysisMatrixLen = []
 for i in range(x):
 	analysisMatrixLen.append([])
@@ -231,8 +216,8 @@ for i in range(x):
 # A second matrix correspondanceMatrixDraft will contain the order in which the 
 # chromosome fragments are present in the contig
 
-x = len(draftChr)
-y = len(refChr)
+x = len(draftFasta)
+y = len(refFasta)
 correspondanceMatrixRef = []
 correspondanceMatrixDraft = []
 for i in range(x):
@@ -244,40 +229,40 @@ for i in range(x):
 
 # Find fragment of chromosomes
 #numberFragments = [0]*len(refChr)
-for j in range(len(refChr)):
-	contigAssociated = [0]*len(draftChr)
-	for i in range(len(draftChr)):
-		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refLen[j], alignmentSizePercent*0.01*draftLen[i]])
+for j in range(len(refFasta)):
+	contigAssociated = [0]*len(draftFasta)
+	for i in range(len(draftFasta)):
+		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refFasta.getLengths()[j], alignmentSizePercent*0.01*draftFasta.getLengths()[i]])
 		if analysisMatrixLen[i][j] >= sizeThreshold:
 			contigAssociated[i] = analysisMatrixRef[i][j].getCenter()
 
 	# Order chromosome fragments
-	contigAssociatedOrder = [0]*len(draftChr)
+	contigAssociatedOrder = [0]*len(draftFasta)
 	centers = [x for x in contigAssociated if x > 0]
-	for i in range(len(draftChr)):
+	for i in range(len(draftFasta)):
 		if contigAssociated[i] != 0:
 			correspondanceMatrixRef[i][j] = 1 + sorted(centers).index(contigAssociated[i])
 
 
 
-for i in range(len(draftChr)):
-	chromoAssociated = [0]*len(refChr)
-	for j in range(len(refChr)):
-		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refLen[j], alignmentSizePercent*0.01*draftLen[i]])
+for i in range(len(draftFasta)):
+	chromoAssociated = [0]*len(refFasta)
+	for j in range(len(refFasta)):
+		sizeThreshold = min([alignmentSizeKb*1000, alignmentSizePercent*0.01*refFasta.getLengths()[j], alignmentSizePercent*0.01*draftFasta.getLengths()[i]])
 		if analysisMatrixLen[i][j] >= sizeThreshold:
 			chromoAssociated[j] = analysisMatrixDraft[i][j].getCenter()
 
 	# Order chromosome in contigs
-	chromoAssociatedOrder = [0]*len(refChr)
+	chromoAssociatedOrder = [0]*len(refFasta)
 	centers = [x for x in chromoAssociated if x > 0]
-	for j in range(len(refChr)):
+	for j in range(len(refFasta)):
 		if chromoAssociated[j] != 0:
 			correspondanceMatrixDraft[i][j] = 1 + sorted(centers).index(chromoAssociated[j])
 
 # Get name of each contig
 draftNewChr = []
 unplacedNb=0
-for i in range(len(draftChr)):
+for i in range(len(draftFasta)):
 	newName = ">"
 	if ChrPrefix != "":
 		newName += ChrPrefix+"_"
@@ -291,31 +276,37 @@ for i in range(len(draftChr)):
 				additionnalInfo += ","
 			# Add Chr Name
 			j = correspondanceMatrixDraft[i].index(n+1)
-			newName += refChr[j]
+			newName += refFasta.getID()[j]
 			# Add Chr fragment, if chromosome if fragmented
 			if max([x[j] for x in correspondanceMatrixRef]) > 1:
 				newName += "."+str(correspondanceMatrixRef[i][j])
 			# Add alignment size
-			additionnalInfo += refChr[j] + "=" + str(analysisMatrixLen[i][j])
+			additionnalInfo += refFasta.getID()[j] + "=" + str(analysisMatrixLen[i][j])
 	else:
 		unplacedNb += 1
 		newName += "Unplaced." + str(unplacedNb)
 		additionnalInfo = ""
 
 	if args.alignmentSizeInfo:
-		draftNewChr += [newName+" length="+str(draftLen[i])+additionnalInfo]
+		draftNewChr += [newName+" length="+str(draftFasta.getLengths()[i])+additionnalInfo]
 	else:
-		draftNewChr += [newName+" length="+str(draftLen[i])]
+		draftNewChr += [newName+" length="+str(draftFasta.getLengths()[i])]
+
+# Change ID in a new draft fasta object
+newDraftFasta = Fasta()
+index = 0
+for seq in draftFasta:
+	# Change ID
+	seq.id = draftNewChr[index].split()[0]
+	# Change sequence description
+	seq.description = f'{draftNewChr[index]}\n'
+	# Add to new fasta object
+	newDraftFasta += Fasta([seq])
+	index += 1
 
 
-# create new Fasta file with renamed contigs
-out = open(outputPath, 'w')
-for i in range(len(draftChr)):
-	out.write(draftNewChr[i]+"\n")
-	seq=re.sub("(.{80})", "\\1\n", draftSeq[i], 0, re.DOTALL)
-	out.write(seq+"\n")
-out.close()
+# Write new fasta object to file
+newDraftFasta.toFile(outputPath)
 
-print("New fasta written to: "+outputPath)
-print("")
+print(f"New fasta written to: {outputPath}\n")
 

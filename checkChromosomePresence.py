@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='1.1'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script check if all chromosomes of a reference are covered by
@@ -59,16 +59,19 @@ def getShowCoords(refPath, draftPath, prefix, mummerPath, threads):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+	description = """This script check if all chromosomes of a reference are covered by a draft assembly. 
+	It uses the nucmer (--maxmatch) and show-coords MUMmer4's functions. 
+	The percentage of each chromosome to be covered can be specified for all chromosomes, 
+	or each one specifically. """)
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assemblies (multi fasta)", nargs='+', required=True)
 parser.add_argument("-o", "--output", help="Output file", default = "")
 parser.add_argument("-p", "--percentCovered", help="Percentage of each chromosome that have to be covered", type=int, default=80)
-parser.add_argument("-pid", "--percentCoveredForID", help="Percentage that have to be covered for a specific chromosome. Syntax is chromosome1=75 for min coverage of 75\% on chromosome1. Several allowed after -pid. ", nargs='+', default = "", type=str)
+parser.add_argument("-pid", "--percentCoveredForID", help="Percentage that have to be covered for a specific chromosome. Syntax is chromosome1=75 for min coverage of 75p on chromosome1. Several allowed after -pid. ", nargs='+', default = "", type=str)
 parser.add_argument("-i", "--detailledInfo", help="Display the coverage of each chromosome of the reference", action='store_true')
 parser.add_argument("-m", "--mummerPath", help="Path to mummer function, if not in path", type=str, default="")
 parser.add_argument("-t", "--threads", help="Number of threads for nucmer", type=int, default=20)
-
 
 # Read arguments from the command line
 args = parser.parse_args()
@@ -85,51 +88,35 @@ if mummer != "" and not mummer.endswith("/") :
 	mummer += "/"
 threads=args.threads
 
-
-
 # Write header in output file
 if args.detailledInfo:
 	if outputPath != "":
 		out = open(outputPath, 'w')
 		out.write("Assembly\tChromosome\tCoverage\n")
 	else:
-		print("Assembly\tChromosome\tCoverage")
+		sys.stdout.write("Assembly\tChromosome\tCoverage\n")
 else:
 	if outputPath != "":
 		out = open(outputPath, 'w')
-		out.write("Assembly\nNbChrPresent\n")
+		out.write("Assembly\tNbChrPresent\n")
 	else:
-		print("Assembly\tNbChrPresent")
+		sys.stdout.write("Assembly\tNbChrPresent\n")
 
 # ========================================
 # Get reference chromosome name and length
-refChr=[]
-refSeq=[]
-seq=""
-ref=open(refPath, 'r')
-for line in ref.readlines():
-	if line.startswith(">"):
-		refChr += [line.strip().split(">")[1].split(" ")[0].split("\t")[0]]
-		if seq != "":
-			refSeq += [seq]
-		seq=""
-	else:
-		seq += line.strip()
-refSeq += [seq]
-ref.close()
-refLen=[len(x) for x in refSeq]
+# Read reference fasta
+refFasta = Fasta(refPath)
 
 # make list of percentage to cover for each chromosome
-percentList = [percent] * len(refChr) # Default percentage for every Chr
+percentList = [percent] * len(refFasta) # Default percentage for every Chr
 if nbIDspecific != 0: # If specific percentage for a chromosome
 	for i in range(nbIDspecific):
 		specChr = percentID[i].split("=")[0]
 		specPerc = int(percentID[i].split("=")[1])
-		if specChr not in refChr:
+		if specChr not in refFasta.getID():
 			raise ValueError("Chromosome ID specified for specific coverage is not found in the reference genome. ")
 		else:
-			percentList[refChr.index(specChr)] = specPerc
-
+			percentList[refFasta.getIndexFromID(specChr)] = specPerc
 
 refName=refPath.split("/")[-1]
 
@@ -155,17 +142,17 @@ for d in range(nbDraft):
 
 	# ======================================
 	# Get BED of alignments for each chromosome of the ref
-	alignmentBEDs = [[] for i in range(len(refChr))]
+	alignmentBEDs = [[] for i in refFasta]
 	# Alignments BED will contain per Chromosome the BED of alignments of this chromosome on the draft genome
-	coords = open(prefix+".coords", 'r')
-	for line in coords.readlines():
-		refStart = int(line.split("\t")[0])
-		refEnd = int(line.split("\t")[1]) + 1
-		Chr = line.split("\t")[7]
-		ChrIndex = refChr.index(Chr)
+	with open(prefix+".coords", 'r') as coords:
+		for line in coords:
+			refStart = int(line.split("\t")[0])
+			refEnd = int(line.split("\t")[1]) + 1
+			Chr = line.split("\t")[7]
+			ChrIndex = refFasta.getIndexFromID(Chr)
 
-		alignmentBEDs[ChrIndex] += [BEDcoordinates(id = Chr, start = refStart, end = refEnd)]
-	coords.close()
+			alignmentBEDs[ChrIndex] += [BEDcoordinates(id = Chr, start = refStart, end = refEnd)]
+	
 	os.remove(prefix+".coords")
 
 	# Convert all to BED
@@ -173,29 +160,29 @@ for d in range(nbDraft):
 
 	# Get coverage per chromosome
 	refCoverage = []
-	for i in range(len(refChr)):
-		refCoverage += [refBED.getID(refChr[i]).overlapLen(alignmentBEDs[i], percent = True)]
+	for i in range(len(refFasta)):
+		refCoverage += [refBED.getID(refFasta.getID()[i]).overlapLen(alignmentBEDs[i], percent = True)]
 
 	# Output detailled for each chromosome
 	if args.detailledInfo:
-		for i in range(len(refChr)):
+		for i in range(len(refFasta)):
 			if outputPath != "":
-				out.write(draftName + "\t" + refChr[i] + "\t" + str(refCoverage[i]) + "\n")
+				out.write(draftName + "\t" + refFasta.getID()[i] + "\t" + str(refCoverage[i]) + "\n")
 			else: 
-				print(draftName + "\t" + refChr[i] + "\t" + str(refCoverage[i]))
+				sys.stdout.write(draftName + "\t" + refFasta.getID()[i] + "\t" + str(refCoverage[i]) + "\n")
 
 	# Output total number of chromosome presents
 	else:
 		# Get number of chromosome covered at X%
 		nbChrPresent = 0
-		for i in range(len(refChr)):
+		for i in range(len(refFasta)):
 			if refCoverage[i] >= percentList[i]:
 				nbChrPresent += 1
 
 		if outputPath != "":
 			out.write(draftName + "\t" + str(nbChrPresent) + "\n")
 		else: 
-			print(draftName + "\t" + str(nbChrPresent))
+			sys.stdout.write(draftName + "\t" + str(nbChrPresent) + "\n")
 
 if outputPath != "":
 	out.close()

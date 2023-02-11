@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/01/04
-# version ='1.0'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script retrieve nuclear contigs and discard small contigs. A nuclear 
@@ -26,12 +26,11 @@ be added to the variable blast.
 # ---------------------------------------------------------------------------
 import csv
 import os
-import sys
 import argparse
 from datetime import datetime
 from random import randint
-import re
 import time
+from Tools import *
 # ---------------------------------------------------------------------------
 # Definitions
 def blastnDB(query, database, blastPath, out):
@@ -49,7 +48,15 @@ def blastnRef(query, reference, blastPath, out):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+	description = '''
+This script retrieve nuclear contigs and discard small contigs. A nuclear 
+contigs is defined as a contig that aligns on the reference nuclear genome
+over more than X consecutive kb with blast. 
+blast+ is used in this script. If blast+ is not in the path, the path can
+be added to the variable blast. 
+'''
+)
 parser.add_argument("-d", "--draft", help="draft genome assembly (multi fasta)", required=True)
 parser.add_argument("-db", "--database", help="the blast database of nuclear chromosomes (done with makeblastdb). Either reference or Database must be given", default = "")
 parser.add_argument("-r", "--reference", help="referance of the nuclear genome (multifasta). Either reference or Database must be given", default = "")
@@ -79,40 +86,22 @@ elif refPath != "" and dbPath != "":
 
 print("\n\t--- KEEPING NUCLEAR CONTIGS ---\n")
 print("Arguments detected:")
-print("\t--draft:\t"+draftPath)
+print(f"\t--draft:\t{draftPath}")
 if dbPath != "":
-	print("\t--database:\t"+dbPath)
+	print(f"\t--database:\t{dbPath}")
 else:
-	print("\t--reference:\t"+refPath)	
-print("\t--minLength:\t"+str(minLength)+"kb")
-print("\t--minAlignedLength:\t"+str(minAlignedLength)+"kb")
-print("\t--output:\t"+outputPath)
-print('')
+	print(f"\t--reference:\t{refPath}")	
+print(f"\t--minLength:\t{minLength}kb")
+print(f"\t--minAlignedLength:\t{minAlignedLength}kb")
+print(f"\t--output:\t{outputPath}\n")
 
 # ===============
 # Get Input files
 # ===============
-# Get draft contigs names and sequences
-draftChr=[]
-draftLine=[]
-draftSeq=[]
-seq=""
-draft=open(draftPath, 'r')
-for line in draft.readlines():
-	if line.startswith(">"):
-		draftLine += [line]
-		draftChr += [line.split(">")[1].split(" ")[0].split("\t")[0].split("\n")[0]]
-		if seq != "":
-			draftSeq += [seq]
-		seq=""
-	else:
-		seq += line.split("\n")[0]
-draftSeq += [seq]
-draft.close()
-draftLen  = [len(x) for x in draftSeq]
+# Read draft fasta
+draftFasta = Fasta(draftPath)
 
 blastResultsPath = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%m_%f") + "_" + str(randint(0, 10000)) + ".blastn"
-
 
 # Run Blastn of draft against ref
 start = time.time()
@@ -138,22 +127,19 @@ for row in blastResults:
 blastResultsFile.close()
 os.remove(blastResultsPath)
 
+# Split contigs between nuclear and non nuclear
+nuclearFasta = Fasta()
+nonNuclearFasta = Fasta()
+for seq in draftFasta:
+	if seq.id in contigs2keep:
+		nuclearFasta += Fasta([seq])
+	else:
+		nonNuclearFasta += Fasta([seq])
 
 # write output file
-output=open(outputPath+".Nuclear.fasta", 'w')
-if len(contigs2keep) < len(draftChr) :
-	output2=open(outputPath+".NonNuclear.fasta", 'w')
-for i in range(len(draftChr)):
-	if draftChr[i] in contigs2keep:
-		seq=re.sub("(.{80})", "\\1\n", draftSeq[i], 0, re.DOTALL)
-		output.write(draftLine[i])
-		output.write(seq+"\n")
-	else:
-		seq=re.sub("(.{80})", "\\1\n", draftSeq[i], 0, re.DOTALL)
-		output2.write(draftLine[i])
-		output2.write(seq+"\n")		
-output.close()
+nuclearFasta.toFile(outputPath+".Nuclear.fasta")
 
-print()
-print(str(len(contigs2keep)) + "/" + str(len(draftChr)) + " contigs kept as NUCLEAR CONTIGS")
-print()
+if len(nonNuclearFasta) > 0 :
+	nonNuclearFasta.toFile(outputPath+".NonNuclear.fasta")
+
+print(f'\n{len(nuclearFasta)}/{len(draftFasta)} contigs kept as NUCLEAR CONTIGS\n')

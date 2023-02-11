@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/01/04
-# version ='1.0'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script remove redundant contigs. If one contig is fully covered 
@@ -21,11 +21,9 @@ be added to the variable blast.
 # ---------------------------------------------------------------------------
 import csv
 import os
-import sys
 import argparse
 from datetime import datetime
 from random import randint
-import re
 import time
 from Tools import *
 # ---------------------------------------------------------------------------
@@ -41,7 +39,14 @@ def blastn(fasta1, fasta2, blastPath, out):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = 
+'''
+This script remove redundant contigs. If one contig is fully covered 
+(95% threshold) by other contigs of the draft assembly, the contig is removed. 
+blast+ is used in this script. If blast+ is not in the path, the path can
+be added to the variable blast. 
+'''
+)
 parser.add_argument("-d", "--draft", help="draft genome assembly (multi fasta)", required=True)
 parser.add_argument("-o", "--output", help="Prefix of the output file", required=True)
 parser.add_argument("-b", "--blastPath", help="Path to blast+ function, if not in path", type=str, default="")
@@ -57,31 +62,15 @@ if blast != "" and not blast.endswith("/") :
 
 print("\n\t--- REMOVING REDUNDANT CONTIGS ---\n")
 print("Arguments detected:")
-print("\t--draft:\t"+draftPath)
-print("\t--output:\t"+outputPath)
-print('')
+print(f"\t--draft:\t{draftPath}")
+print(f"\t--output:\t{outputPath}\n")
 
 # ===============
 # Get Input files
 # ===============
 # Get draft contigs names and sequences
-draftChr=[]
-draftLine=[]
-draftSeq=[]
-seq=""
-draft=open(draftPath, 'r')
-for line in draft.readlines():
-	if line.startswith(">"):
-		draftLine += [line]
-		draftChr += [line.split(">")[1].split(" ")[0].split("\t")[0].split("\n")[0]]
-		if seq != "":
-			draftSeq += [seq]
-		seq=""
-	else:
-		seq += line.split("\n")[0]
-draftSeq += [seq]
-draft.close()
-draftLen  = [len(x) for x in draftSeq]
+# Read draft Fasta
+draftFasta = Fasta(draftPath)
 
 blastResultsPath = datetime.now().strftime("%Y_%m_%d_%H_%M_%S_%m_%f") + "_" + str(randint(0, 10000)) + ".blastn"
 
@@ -96,15 +85,15 @@ print("Alignment done: ran in "+str(round(end-start))+"s")
 start = time.time()
 draftBED = getBED(draftPath)
 end = time.time()
-print("Draft BED obtained: ran in "+str(round(end-start))+"s")
+print(f"Draft BED obtained: ran in {round(end-start)}s")
 
 # Blast results analysis
 # Blast results will be stored in the 2 level matrix analysisMatrix
 # Level 1: Contig on which the contigs are aligned
 # Level 2: BED of alignments covering contig1 by contig2
 start = time.time()
-x = len(draftChr)
-y = len(draftChr)
+x = len(draftFasta)
+y = len(draftFasta)
 analysisMatrix = []
 for i in range(x):
 	analysisMatrix.append([])
@@ -112,24 +101,24 @@ for i in range(x):
 		analysisMatrix[i].append([])
 
 # Read blast out file
-blastResultsFile = open(blastResultsPath)
-blastResults = csv.reader(blastResultsFile, delimiter="\t")
-for row in blastResults:
-	contig1 = row[0]
-	contig2 = row[1]
-	if contig1 != contig2:
-		index1 = draftChr.index(contig1)
-		index2 = draftChr.index(contig2)
-		startPos = int(row[6])
-		endPos = int(row[7])+1
-		coord2add = BEDcoordinates(id = contig1, start = startPos, end = endPos)
-		analysisMatrix[index1][index2] += [coord2add]
-blastResultsFile.close()
+with open(blastResultsPath) as blastResultsFile:
+	blastResults = csv.reader(blastResultsFile, delimiter="\t")
+	for row in blastResults:
+		contig1 = row[0]
+		contig2 = row[1]
+		if contig1 != contig2:
+			index1 = draftFasta.getIndexFromID(contig1)
+			index2 = draftFasta.getIndexFromID(contig2)
+			startPos = int(row[6])
+			endPos = int(row[7])+1
+			coord2add = BEDcoordinates(id = contig1, start = startPos, end = endPos)
+			analysisMatrix[index1][index2] += [coord2add]
+
 os.remove(blastResultsPath)
 
 # Convert every list of BEDcoordinates to BED objects
-for i in range(len(draftChr)):
-	for j in range(len(draftChr)):
+for i in range(len(draftFasta)):
+	for j in range(len(draftFasta)):
 		analysisMatrix[i][j] = BED(analysisMatrix[i][j])
 end = time.time()
 print("Blast read: ran in "+str(round(end-start))+"s")
@@ -138,15 +127,15 @@ print("Blast read: ran in "+str(round(end-start))+"s")
 start = time.time()
 alignments = []
 overlap = []
-for i in range(len(draftChr)):
+for i in range(len(draftFasta)):
 	# For each contig, the alignment list will contain the alignment BED of all other contigs on the contig
-	contigs2align = list(range(len(draftChr)))
+	contigs2align = list(range(len(draftFasta)))
 	contigs2align.remove(i)
 	BED2sum = [analysisMatrix[i][x] for x in contigs2align]
 	alignments += [BED(BED2sum)]
 
 	# Convert each BED to overlap
-	draftContigBED = draftBED.getID(draftChr[i]) # Get BED of contig
+	draftContigBED = draftBED.getID(draftFasta.getID()[i]) # Get BED of contig
 	overlap += [draftContigBED.overlapLen(alignments[i], percent = True)] # Get overlap percentage of alignment on contig
 
 # While there is contigs covered on more than 95%, remove contig and recompute the whole process
@@ -156,13 +145,13 @@ while max(overlap) >= 95:
 	contigsRemoved += [overlap.index(max(overlap))]
 	contigsRemovedCoverage += [max(overlap)]
 
-	alignments = [[] for i in range(len(draftChr))]
-	overlap = [0 for i in range(len(draftChr))]
+	alignments = [[] for i in range(len(draftFasta))]
+	overlap = [0 for i in range(len(draftFasta))]
 	# For each contig, the alignment list will contain the alignment BED of all other contigs on the contig
-	for i in range(len(draftChr)):
+	for i in range(len(draftFasta)):
 		if i not in contigsRemoved:
 			# For each contig, the alignment list will contain the alignment BED of all other contigs on the contig
-			contigs2align = list(range(len(draftChr)))
+			contigs2align = list(range(len(draftFasta)))
 			contigs2align.remove(i)
 			for j in contigsRemoved:
 				contigs2align.remove(j)
@@ -170,30 +159,32 @@ while max(overlap) >= 95:
 			alignments[i] = BED(BED2sum)
 
 			# Convert each BED to overlap
-			draftContigBED = draftBED.getID(draftChr[i])
+			draftContigBED = draftBED.getID(draftFasta.getID()[i])
 			overlap[i] = draftContigBED.overlapLen(alignments[i], percent = True)
 
 end = time.time()
 print("Coverage analysis completed: ran in "+str(round(end-start))+"s")
 
-# Write output to 2 files: PREFIX.NoRedundantContigs.fasta and PREFIX.removedContigs.fasta
-output1=open(outputPath+".NoRedundantContigs.fasta", 'w')
-if len(contigsRemoved) > 0 :
-	output2 = open(outputPath+".removedContigs.fasta", "w")
-for i in range(len(draftChr)):
-	seq=re.sub("(.{80})", "\\1\n", draftSeq[i], 0, re.DOTALL)
+# Create Fasta objects with redundant and non redundant contigs
+nonRedundantContigs = Fasta()
+redundantContigs = Fasta()
+for i in range(len(draftFasta)):
+	seq = draftFasta.sequences[i]
 	if i in contigsRemoved:
-		output2.write(draftLine[i])
-		output2.write(seq+"\n")
+		redundantContigs += Fasta([seq])
 	else:
-		output1.write(draftLine[i])
-		output1.write(seq+"\n")
-output1.close()
+		nonRedundantContigs += Fasta([seq])
+
+# Write output to 2 files: PREFIX.NoRedundantContigs.fasta and PREFIX.removedContigs.fasta
+nonRedundantContigs.toFile(outputPath+".NoRedundantContigs.fasta")
+
 if len(contigsRemoved) > 0 :
-	output2.close()
+	redundantContigs.toFile(outputPath+".removedContigs.fasta")
+
+if len(contigsRemoved) > 0 :
 	print("\nContigs removed: ")
 	print("\tContig\t% covered")
-	for i in range(len(contigsRemoved)):
-		print("\t" + draftChr[contigsRemoved[i]] + "\t" + str(contigsRemovedCoverage[i]))
+	for seq in redundantContigs:
+		print(f"\t{seq.id}\t{contigsRemovedCoverage[redundantContigs.sequences.index(seq)]}")
 else:
 	print("\nNo contig removed")

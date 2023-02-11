@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/01/04
-# version ='1.0'
+# version ='2.0'
 # ---------------------------------------------------------------------------
 '''
 This script reorder a fasta file according to a reference fasta file
@@ -21,16 +21,16 @@ be added to the variable mummer.
 # ---------------------------------------------------------------------------
 import csv
 import os
-import sys
 import argparse
 from datetime import datetime
 from random import randint
+from Tools import *
 # ---------------------------------------------------------------------------
 # Definitions
 
-def reverse_complement(dna):
-	complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N':'N', 'S':'S', 'W':'W', 'Y':'R', 'R':'Y', 'M':'K', 'K':'M', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n':'n', 's':'s', 'w':'w', 'y':'r', 'r':'y', 'm':'k', 'k':'m'}
-	return ''.join([complement[base] for base in dna[::-1]])
+# def reverse_complement(dna):
+# 	complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N':'N', 'S':'S', 'W':'W', 'Y':'R', 'R':'Y', 'M':'K', 'K':'M', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n':'n', 's':'s', 'w':'w', 'y':'r', 'r':'y', 'm':'k', 'k':'m'}
+# 	return ''.join([complement[base] for base in dna[::-1]])
 
 def rank_simple(vector):
 	return sorted(range(len(vector)), key=vector.__getitem__)
@@ -42,7 +42,13 @@ def rank_simple(vector):
 # =============
 
 # Initiate the parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description = 
+'''
+This script reorder a fasta file according to a reference fasta file. 
+MUMmer4 is used in this script. If MUMmer4 is not in the path, the path can
+be added to the variable mummer. 
+'''
+)
 parser.add_argument("-r", "--ref", help="reference genome assembly (multi fasta)", required=True)
 parser.add_argument("-d", "--draft", help="draft genome assembly (multi fasta)", required=True)
 parser.add_argument("-o", "--output", help="Name of the outputed fasta", required=True)
@@ -73,35 +79,13 @@ print('')
 # Get Input files
 # ===============
 
-# Get reference chromosomes names
+# read reference Fasta
 print("1/7\tGet reference chromosomes names")
-refChr=[]
-refLine=[]
-ref=open(refPath, 'r')
-for line in ref.readlines():
-	if line.startswith(">"):
-		refLine += [line]
-		refChr += [line.split(">")[1].split(" ")[0].split("\t")[0].split("\n")[0]]
-ref.close()
+refFasta = Fasta(refPath)
 
 # Get draft contigs names and sequences
 print("2/7\tGet draft contigs names and sequences")
-draftChr=[]
-draftLine=[]
-draftSeq=[]
-seq=""
-draft=open(draftPath, 'r')
-for line in draft.readlines():
-	if line.startswith(">"):
-		draftLine += [line]
-		draftChr += [line.split(">")[1].split(" ")[0].split("\t")[0].split("\n")[0]]
-		if seq != "":
-			draftSeq += [seq]
-		seq=""
-	else:
-		seq += line.split("\n")[0]
-draftSeq += [seq]
-draft.close()
+draftFasta = Fasta(draftPath)
 
 # =========================================
 # Using MUMmer4 to align draft to reference
@@ -137,9 +121,9 @@ alignmentNbReverse=[] 	# 4 # Length of reverse alignments on each ref Chr
 # First level: draft contig
 # Second level: type of statistics (alignmentLength, alignmentPos, alignmentNb, alignmentNbReverse, alignmentNbForward)
 # Third level: ref chromosome
-x = len(draftChr)
+x = len(draftFasta)
 y = 5
-z = len(refChr)
+z = len(refFasta)
 analysisMatrix = []
 for i in range(x):
 	analysisMatrix.append([])
@@ -153,40 +137,38 @@ for i in range(x):
 				analysisMatrix[i][j].append(0)
 
 
-coordsFile = open(prefix+".coords")
-coords = csv.reader(coordsFile, delimiter="\t")
-for row in coords:
-	draftContigIndex=draftChr.index(row[8])
-	refChrIndex=refChr.index(row[7])
+with open(prefix+".coords") as coordsFile:
+	coords = csv.reader(coordsFile, delimiter="\t")
+	for row in coords:
+		draftContigIndex=draftFasta.getIndexFromID(row[8])
+		refChrIndex=refFasta.getIndexFromID(row[7])
 
-	# Add alignment length
-	analysisMatrix[draftContigIndex][0][refChrIndex] += int(row[4])
-	# Add alignment middle position if it is the longuest alignment
-	if analysisMatrix[draftContigIndex][1][refChrIndex][1] < int(row[4]):
-		analysisMatrix[draftContigIndex][1][refChrIndex] = ( int( (int(row[0]) + int(row[1])) / 2 ), int(row[4]))
-	# Add number of alignments
-	analysisMatrix[draftContigIndex][2][refChrIndex] += 1
-	# Add length of reverse or foward alignments
-	if int(row[2]) < int(row[3]):
-		analysisMatrix[draftContigIndex][3][refChrIndex] += int(row[4])
-	else:
-		analysisMatrix[draftContigIndex][4][refChrIndex] += int(row[4])
-coordsFile.close()
+		# Add alignment length
+		analysisMatrix[draftContigIndex][0][refChrIndex] += int(row[4])
+		# Add alignment middle position if it is the longuest alignment
+		if analysisMatrix[draftContigIndex][1][refChrIndex][1] < int(row[4]):
+			analysisMatrix[draftContigIndex][1][refChrIndex] = ( int( (int(row[0]) + int(row[1])) / 2 ), int(row[4]))
+		# Add number of alignments
+		analysisMatrix[draftContigIndex][2][refChrIndex] += 1
+		# Add length of reverse or foward alignments
+		if int(row[2]) < int(row[3]):
+			analysisMatrix[draftContigIndex][3][refChrIndex] += int(row[4])
+		else:
+			analysisMatrix[draftContigIndex][4][refChrIndex] += int(row[4])
+
 
 
 # For each draft contig, get the corresponding ref Chr, orientation, and position
 print("6/7\tFind corresponding chromosomes")
-correspondingChrs=[""]*len(draftChr)
-orientations=[""]*len(draftChr)
-positions=[""]*len(draftChr)
+correspondingChrs=[""]*len(draftFasta)
+orientations=[""]*len(draftFasta)
+positions=[""]*len(draftFasta)
 
-for contig in draftChr:
-	draftContigIndex=draftChr.index(contig)
-
+for draftContigIndex in range(len(draftFasta)):
 	# Find the corresponding chromosome on the reference
 	maxLength = max(analysisMatrix[draftContigIndex][0])
 	refChrIndex = analysisMatrix[draftContigIndex][0].index(maxLength)
-	correspondingChr = refChr[refChrIndex]
+	correspondingChr = refFasta.getID()[refChrIndex]
 	correspondingChrs[draftContigIndex] = correspondingChr
 
 	# Find the orientation of the contig
@@ -203,14 +185,14 @@ for contig in draftChr:
 	positions[draftContigIndex] = position
 
 print("\nCorresponding chromosomes")
-for i in range(len(draftChr)):
-	print(draftChr[i]+"\t"+correspondingChrs[i])
+for i in range(len(draftFasta)):
+	print(f'{draftFasta.getID()[i]}\t{correspondingChrs[i]}')
 
 # get the final draft contigs order
-order=[0]*len(draftChr)
+order=[0]*len(draftFasta)
 
 index=0
-for chr in refChr:
+for chr in refFasta.getID():
 	if correspondingChrs.count(chr) == 0:
 		pass
 	elif correspondingChrs.count(chr) == 1:
@@ -221,7 +203,7 @@ for chr in refChr:
 		# Get indices of all contigs aligning on the same chromosome
 		draftContigIndices = [i for i, x in enumerate(correspondingChrs) if x == chr]
 		# Get contigs id
-		contigs = [draftChr[i] for i in draftContigIndices]
+		contigs = [draftFasta.getID()[i] for i in draftContigIndices]
 		# Get relative position of contigs on the reference chromosome
 		posOnChr = [positions[i] for i in draftContigIndices]
 		# Get ranks of contigs
@@ -230,7 +212,7 @@ for chr in refChr:
 		contigsOrdered = [contigs[i] for i in innerOrder]
 		# Add final order
 		for c in contigsOrdered:
-			draftContigIndex = draftChr.index(c)
+			draftContigIndex = draftFasta.getIndexFromID(c)
 			order[draftContigIndex] = index
 			index += 1
 
@@ -244,18 +226,17 @@ for i in range(len(order)):
 # Write output fasta file
 # =======================
 
-print("\n7/7\tWrite to output file: "+outputPath)
-output=open(outputPath, 'w')
+sequences = []
 for index in orderToPrint:
-	# Write fasta header
-	output.write(draftLine[index])
-	# If sequence is Reverse, do reverse complement
+	seq = draftFasta.sequences[index]
 	if orientations[index] == "R":
-		newSeq = reverse_complement(draftSeq[index])
-		output.write(newSeq+"\n")
-	else:
-		output.write(draftSeq[index]+"\n")
-output.close()
+		seq.reverseComplement()
+	sequences += [seq]
+
+newDraftFasta = Fasta(sequences)
+
+print("\n7/7\tWrite to output file: "+outputPath)
+newDraftFasta.toFile(outputPath)
 
 # =====================
 # clean temporary files
