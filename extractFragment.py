@@ -3,13 +3,14 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/15
-# version ='2.0'
+# version ='2.1'
 # ---------------------------------------------------------------------------
 '''
 This script extract a sequence from a fasta file
 
 It takes as input :
 	-f --fasta: fasta file
+	-F --file: Text file containing IDs to extract, one ID per line
 	-id --seqid: ID of the sequence, or multiple IDs separated by space
 	-p --prefix: Prefix that the sequence ID have to match to be retained (several allowed seperated by space)
 	-s --start: Start position (inclusive, 1-based)
@@ -29,6 +30,7 @@ from Tools import *
 # Initiate the parser
 parser = argparse.ArgumentParser(description = "This script extracts a sequence from a fasta file. It can also extract a fragment of a sequence, retrieve all sequences whose ID starts with a specified prefix, or retrieve the opposite of a query. ")
 parser.add_argument("-f", "--fasta", help="fasta file", required=True)
+parser.add_argument("-F", "--file", help="Text file containing IDs to extract, one ID per line", default = "")
 parser.add_argument("-o", "--output", help="output file", default = "")
 parser.add_argument("-id", "--seqid", help="ID of the sequence, or multiple IDs separated by space", nargs='+', default = [])
 parser.add_argument("-p", "--prefix", help="Prefix that the sequence ID have to match to be retained (several allowed seperated by space)", nargs='+', default = [])
@@ -40,8 +42,13 @@ parser.add_argument("-v", "--invert", help="Output the inverse of the query", ac
 args = parser.parse_args()
 
 fastaPath = args.fasta
+IDpath = args.file
 outputPath=args.output
 seqidList=args.seqid
+if IDpath != "":
+	# If a file of IDs is given, add IDs to seqidlist
+	with open(IDpath, "r") as IDs:
+		seqidList += [line.strip() for line in IDs]
 prefixList=args.prefix
 start=int(args.start)
 end=int(args.end)
