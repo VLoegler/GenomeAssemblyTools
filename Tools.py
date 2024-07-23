@@ -3,7 +3,7 @@
 #----------------------------------------------------------------------------
 # Created By  : vloegler
 # Created Date: 2022/09/16
-# version ='2.0'
+# version ='2.1'
 # ---------------------------------------------------------------------------
 '''
 This script contains all tools and classes to deal with BED coordinates and
@@ -387,7 +387,7 @@ class Sequence:
 		return self.description + seq_to_print
 
 	def reverseComplement(self):
-		complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N':'N', 'S':'S', 'W':'W', 'Y':'R', 'R':'Y', 'M':'K', 'K':'M', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n':'n', 's':'s', 'w':'w', 'y':'r', 'r':'y', 'm':'k', 'k':'m'}
+		complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N':'N', 'S':'S', 'W':'W', 'Y':'R', 'R':'Y', 'M':'K', 'K':'M', 'B':'V', 'D':'H', 'H':'D', 'V':'B', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n':'n', 's':'s', 'w':'w', 'y':'r', 'r':'y', 'm':'k', 'k':'m', 'b':'v', 'd':'h', 'h':'d', 'v':'b'}
 		self.seq = ''.join([complement[base] for base in self.seq[::-1]])
 
 
