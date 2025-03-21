@@ -374,7 +374,7 @@ class Sequence:
 		if not header.endswith('\n'):
 			header += '\n'
 		self.seq = sequence
-		self.id = header.split()[0].split('>')[1]
+		self.id = '>'.join(header.split()[0].split('>')[1:])
 		self.description = header
 
 	def __len__(self):
